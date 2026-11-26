@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Emulador GBA</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="bar">
+  <h1>Emulador GBA <small>JavaScript nativo</small></h1>
+  <label class="btn primary file"><input type="file" id="romInput" accept=".gba,.agb,.bin">Seleccionar ROM…</label>
+  <button class="btn" id="btnToggle" disabled>Iniciar</button>
+  <button class="btn" id="btnReset" disabled>Reiniciar</button>
+  <button class="btn" id="btnFull">Pantalla completa</button>
+  <span id="fps" class="muted"></span>
+  <button class="btn ghost" id="btnDev" title="F2">Desarrollador</button>
+</header>
+
+<main>
+  <section class="stage">
+    <div id="dropZone" class="drop">
+      <p><b>Selecciona o arrastra tu ROM de Game Boy Advance (.gba).</b></p>
+      <p class="muted">El archivo se procesa solo en este navegador: no se envía ni se guarda en ningún servidor. Usa una copia que tengas derecho a utilizar.</p>
+    </div>
+    <div id="screenWrap" class="screen-wrap">
+      <canvas id="screen" width="240" height="160" tabindex="0" aria-label="Pantalla del juego"></canvas>
+    </div>
+    <p id="romMeta" class="meta muted"></p>
+    <p id="status" class="status" role="status"></p>
+
+    <div id="pad" class="pad" aria-label="Controles en pantalla">
+      <div class="shoulders"><button data-btn="L">L</button><button data-btn="R">R</button></div>
+      <div class="dpad">
+        <button data-btn="UP" class="up" aria-label="Arriba">▲</button>
+        <button data-btn="LEFT" class="left" aria-label="Izquierda">◀</button>
+        <button data-btn="RIGHT" class="right" aria-label="Derecha">▶</button>
+        <button data-btn="DOWN" class="down-k" aria-label="Abajo">▼</button>
+      </div>
+      <div class="ab"><button data-btn="B" class="b">B</button><button data-btn="A" class="a">A</button></div>
+      <div class="ss"><button data-btn="SELECT">Select</button><button data-btn="START">Start</button></div>
+    </div>
+  </section>
+
+  <aside class="side">
+    <details open><summary>Audio</summary>
+      <label class="row">Volumen <input type="range" id="volume" min="0" max="1" step="0.05" value="0.8"></label>
+      <label class="row"><input type="checkbox" id="mute"> Silenciar</label>
+      <label class="row">Velocidad <select id="speed"><option value="1" selected>×1</option><option value="2">×2</option><option value="0.5">×0,5</option></select></label>
+    </details>
+    <details open><summary>Partida</summary>
+      <p class="muted small">El juego guarda en el cartucho emulado y el navegador lo conserva (IndexedDB) al cerrar la página.</p>
+      <div class="row"><button class="btn" id="btnExport">Exportar .sav</button>
+        <label class="btn file"><input type="file" id="importInput" accept=".sav,.srm,.fla,.bin">Importar .sav</label></div>
+      <p class="muted small">Estados rápidos del emulador (aparte del guardado del juego):</p>
+      <div class="row"><select id="slot"><option>1</option><option>2</option><option>3</option></select>
+        <button class="btn" id="btnSaveState">Guardar estado</button><button class="btn" id="btnLoadState">Cargar estado</button></div>
+    </details>
+    <details><summary>Controles</summary>
+      <p class="muted small">Pulsa un botón y después la tecla que quieras asignarle.</p>
+      <div id="keymap" class="keymap"></div>
+      <button class="btn ghost" id="btnResetKeys">Restaurar teclas</button>
+    </details>
+  </aside>
+</main>
+
+<section id="devPanel" class="dev" hidden>
+  <div class="dev-grid">
+    <div><h3>CPU</h3><pre data-dbg="cpu"></pre></div>
+    <div><h3>Vídeo</h3><pre data-dbg="video"></pre>
+      <div class="row small">Capas: <label><input type="checkbox" data-layer="0" checked>BG0</label><label><input type="checkbox" data-layer="1" checked>BG1</label><label><input type="checkbox" data-layer="2" checked>BG2</label><label><input type="checkbox" data-layer="3" checked>BG3</label><label><input type="checkbox" data-layer="4" checked>OBJ</label></div></div>
+    <div><h3>IRQ · DMA · Timers · BIOS</h3><pre data-dbg="hw"></pre></div>
+    <div><h3>Memoria</h3><div class="row"><input id="memAddr" value="0x02000000" size="11"><button class="btn" id="memGo">Ver</button></div><pre data-dbg="mem"></pre></div>
+    <div><h3>Instrucciones <label class="small"><input type="checkbox" id="traceOn"> registrar</label></h3><pre data-dbg="trace"></pre></div>
+    <div><h3>Registro</h3><pre data-dbg="log"></pre></div>
+  </div>
+</section>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "name": "gba-rom-lab",
+  "version": "0.1.0",
+  "description": "Analizador binario de ROMs GBA y decodificadores gráficos en JavaScript nativo (sin dependencias).",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "analyze": "node cli/analyze.js"
+  }
+}

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Motor GBA HTML5</title>
+<link rel="stylesheet" href="styles.css">
+<style>
+  .screen{width:min(100%,720px);aspect-ratio:3/2;height:auto;image-rendering:pixelated;border:1px solid var(--line);border-radius:6px;background:#000;display:block}
+  .wrap{display:grid;grid-template-columns:minmax(0,720px) minmax(240px,1fr);gap:16px;align-items:start}
+  @media (max-width:900px){.wrap{grid-template-columns:1fr}}
+  kbd{font-family:var(--mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px;font-size:12px}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Motor GBA HTML5</h1>
+  <label class="file"><input type="file" id="packFile" accept=".json,application/json"><span>Cargar pack JSON…</span></label>
+  <button id="demo">Pack de demostración</button>
+  <span class="status" id="status"></span>
+</header>
+<main>
+  <div class="wrap">
+    <div>
+      <canvas id="screen" class="screen" tabindex="0" aria-label="Pantalla del motor (240×160)"></canvas>
+      <p class="hint">Mover (o desplazar la cámara si el pack no tiene sprites): <kbd>←</kbd><kbd>↑</kbd><kbd>→</kbd><kbd>↓</kbd> o <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>. Haz clic en la pantalla para darle el foco.</p>
+      <div class="toolbar">
+        <button id="fade">Fundido a negro</button>
+        <label><input type="checkbox" id="cycle" checked> ciclo de color del agua (paleta)</label>
+        <label><input type="checkbox" id="topLayer" checked> capa superior</label>
+        <label>secuencia <select id="seqSel"></select></label>
+        <label><input type="checkbox" id="repeat" checked> repetir al terminar (END)</label>
+      </div>
+    </div>
+    <div>
+      <div class="card"><h2>Estado</h2><pre id="info" class="mono"></pre></div>
+      <div class="card"><h2>Registro del pack</h2><div id="log" class="mono"></div></div>
+      <div class="card"><h2>Arquitectura</h2><p class="hint">Engine → PaletteManager · TileManager · TilemapManager · SpriteManager · AnimationManager. El motor solo lee el formato <code>gba-asset-pack</code> v1 (docs/ENGINE.md) y nunca una ROM. El pack de demostración es arte original generado por código (CC0).</p></div>
+    </div>
+  </div>
+</main>
+<script type="module" src="engine-demo.js"></script>
+</body>
+</html>

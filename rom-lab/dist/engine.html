@@ -1,0 +1,957 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Motor GBA HTML5</title>
+<style>
+:root{--bg:#f6f7f9;--panel:#fff;--fg:#1c2128;--muted:#5d6672;--line:#d6dbe1;--accent:#2f6fde;
+--ok:#1f8a4c;--corr:#2f6fde;--hyp:#b7791f;--rej:#c0392b;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+@media (prefers-color-scheme:dark){:root{--bg:#14171c;--panel:#1c2027;--fg:#e4e8ee;--muted:#9aa4b1;--line:#2e3540;--accent:#6aa0ff;--ok:#4cc38a;--corr:#6aa0ff;--hyp:#e0a94a;--rej:#ff6b5e}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+.top{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+.top h1{font-size:17px;margin:0 8px 0 0}
+.file input{display:none}
+.file span,button{display:inline-block;border:1px solid var(--line);background:var(--panel);color:var(--fg);border-radius:6px;padding:5px 10px;cursor:pointer;font:inherit}
+.file span{background:var(--accent);color:#fff;border-color:var(--accent)}
+button:disabled{opacity:.45;cursor:default}
+button:not(:disabled):hover{border-color:var(--accent)}
+.status{color:var(--muted);flex:1;min-width:200px}
+.tabs{display:flex;gap:2px;padding:0 16px;background:var(--panel);border-bottom:1px solid var(--line);overflow-x:auto}
+.tabs button{border:0;border-bottom:2px solid transparent;border-radius:0;background:none;padding:9px 12px;white-space:nowrap}
+.tabs button.active{border-bottom-color:var(--accent);color:var(--accent)}
+main{padding:16px}
+.tab{display:none}.tab.active{display:block}
+.hint{color:var(--muted);margin:6px 0}
+.mono{font-family:var(--mono);font-size:12.5px;white-space:pre-wrap;word-break:break-all}
+.hex{white-space:pre}
+.drop{border:2px dashed var(--line);border-radius:10px;padding:28px;text-align:center;color:var(--muted);margin-bottom:16px}
+.drop.over{border-color:var(--accent);color:var(--accent)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin-bottom:12px}
+.card h2{font-size:15px;margin:0 0 8px}
+table{border-collapse:collapse;width:100%}
+th,td{text-align:left;padding:4px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:600}
+td.mono{white-space:nowrap}
+.lvl{display:inline-block;font-size:11px;padding:1px 7px;border-radius:10px;border:1px solid currentColor;white-space:nowrap}
+.lvl.confirmed{color:var(--ok)}.lvl.corroborated{color:var(--corr)}.lvl.hypothesis{color:var(--hyp)}.lvl.rejected{color:var(--rej)}
+.badge{background:var(--rej);color:#fff;border-radius:9px;padding:0 6px;font-size:11px}
+.toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:8px}
+input,select{font:inherit;color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:5px;padding:3px 6px}
+input[type=number]{width:64px}
+.split{display:grid;grid-template-columns:minmax(260px,360px) 1fr;gap:16px}
+@media (max-width:760px){.split{grid-template-columns:1fr}}
+.pane{min-width:0}
+.list{max-height:70vh;overflow:auto;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+.list div{padding:4px 8px;border-bottom:1px solid var(--line);cursor:pointer;font-family:var(--mono);font-size:12px}
+.list div:hover,.list div.sel{background:color-mix(in srgb,var(--accent) 14%,transparent)}
+.canvasbox{overflow:auto;max-width:100%;background:repeating-conic-gradient(#8882 0 25%,transparent 0 50%) 0 0/16px 16px;border:1px solid var(--line);border-radius:6px;padding:6px;display:inline-block;vertical-align:top}
+.cap{font-size:12px;color:var(--muted);margin-bottom:4px}
+canvas{image-rendering:pixelated;display:block}
+.strip{width:100%;height:56px;border:1px solid var(--line);border-radius:4px;cursor:crosshair}
+.row{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start}
+.legend{display:flex;flex-wrap:wrap;gap:14px;margin:8px 0;font-size:12px}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:2px;margin-right:4px;vertical-align:-2px}
+.logitem{font-family:var(--mono);font-size:12px;padding:4px 0;border-bottom:1px solid var(--line)}
+.logitem.warn{color:var(--hyp)}.logitem.error{color:var(--rej)}
+</style>
+<style>
+  .screen{width:min(100%,720px);aspect-ratio:3/2;height:auto;image-rendering:pixelated;border:1px solid var(--line);border-radius:6px;background:#000;display:block}
+  .wrap{display:grid;grid-template-columns:minmax(0,720px) minmax(240px,1fr);gap:16px;align-items:start}
+  @media (max-width:900px){.wrap{grid-template-columns:1fr}}
+  kbd{font-family:var(--mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px;font-size:12px}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Motor GBA HTML5</h1>
+  <label class="file"><input type="file" id="packFile" accept=".json,application/json"><span>Cargar pack JSON…</span></label>
+  <button id="demo">Pack de demostración</button>
+  <span class="status" id="status"></span>
+</header>
+<main>
+  <div class="wrap">
+    <div>
+      <canvas id="screen" class="screen" tabindex="0" aria-label="Pantalla del motor (240×160)"></canvas>
+      <p class="hint">Mover (o desplazar la cámara si el pack no tiene sprites): <kbd>←</kbd><kbd>↑</kbd><kbd>→</kbd><kbd>↓</kbd> o <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>. Haz clic en la pantalla para darle el foco.</p>
+      <div class="toolbar">
+        <button id="fade">Fundido a negro</button>
+        <label><input type="checkbox" id="cycle" checked> ciclo de color del agua (paleta)</label>
+        <label><input type="checkbox" id="topLayer" checked> capa superior</label>
+        <label>secuencia <select id="seqSel"></select></label>
+        <label><input type="checkbox" id="repeat" checked> repetir al terminar (END)</label>
+      </div>
+    </div>
+    <div>
+      <div class="card"><h2>Estado</h2><pre id="info" class="mono"></pre></div>
+      <div class="card"><h2>Registro del pack</h2><div id="log" class="mono"></div></div>
+      <div class="card"><h2>Arquitectura</h2><p class="hint">Engine → PaletteManager · TileManager · TilemapManager · SpriteManager · AnimationManager. El motor solo lee el formato <code>gba-asset-pack</code> v1 (docs/ENGINE.md) y nunca una ROM. El pack de demostración es arte original generado por código (CC0).</p></div>
+    </div>
+  </div>
+</main>
+<script>
+"use strict";
+const __mod = {};
+// ---- src/decoders/palette.js
+__mod["src/decoders/palette.js"] = (() => {
+/**
+ * Paletas GBA (BGR555). Fuente: GBATEK, "LCD Color Palettes".
+ * Representación interna: Uint32Array de colores RGBA empaquetados en little-endian (0xAABBGGRR),
+ * listos para escribirse en un Uint32Array sobre ImageData.data.
+ */
+
+/** Escalado 5→8 bits: replica los bits altos en los bajos (convención, no definida por hardware). */
+const c5to8 = (c) => (c << 3) | (c >> 2);
+
+/** @param {number} bgr u16 BGR555 @returns {[number, number, number]} */
+function bgr555ToRgb(bgr) {
+  return [c5to8(bgr & 31), c5to8((bgr >> 5) & 31), c5to8((bgr >> 10) & 31)];
+}
+
+const packRGBA = (r, g, b, a = 255) => ((a << 24) | (b << 16) | (g << 8) | r) >>> 0;
+
+/**
+ * Decodifica `count` colores BGR555 desde `bytes[offset]`.
+ * @returns {{colors: Uint32Array, bit15Set: number}} bit15Set: nº de colores con el bit 15 activo (no usado por el hardware;
+ *   valores altos sugieren que los datos no son una paleta)
+ */
+function decodePalette(bytes, offset = 0, count = 16) {
+  if (offset < 0 || offset + count * 2 > bytes.length) throw new RangeError(`Paleta fuera de límites (0x${offset.toString(16)} + ${count * 2})`);
+  const colors = new Uint32Array(count);
+  let bit15Set = 0;
+  for (let i = 0; i < count; i++) {
+    const v = bytes[offset + i * 2] | (bytes[offset + i * 2 + 1] << 8);
+    if (v & 0x8000) bit15Set++;
+    const [r, g, b] = bgr555ToRgb(v);
+    colors[i] = packRGBA(r, g, b);
+  }
+  return { colors, bit15Set };
+}
+
+/** Paleta de grises de n entradas: visualización neutra cuando NO hay evidencia de qué paleta corresponde. */
+function grayscalePalette(n = 16) {
+  const c = new Uint32Array(n);
+  for (let i = 0; i < n; i++) { const v = Math.round((i * 255) / (n - 1)); c[i] = packRGBA(v, v, v); }
+  return c;
+}
+
+return { c5to8, bgr555ToRgb, packRGBA, decodePalette, grayscalePalette };
+})();
+// ---- src/engine/PaletteManager.js
+__mod["src/engine/PaletteManager.js"] = (() => {
+/**
+ * PaletteManager — paletas de 16·n colores como Uint32Array RGBA (formato de ImageData en little-endian).
+ * Permite modificar paletas en tiempo de ejecución (fundidos, ciclos de color): cada cambio incrementa
+ * `version`, y los gestores que cachean imágenes la usan para invalidarse.
+ */
+const { packRGBA } = __mod["src/decoders/palette.js"];
+const hexToRGBA = (h) => packRGBA(parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16));
+
+class PaletteManager {
+  constructor() { this.base = new Map(); this.current = new Map(); this.version = 0; }
+  /** @param {string} id @param {string[]|Uint32Array} colors '#rrggbb' o RGBA empaquetado */
+  register(id, colors) {
+    const c = colors instanceof Uint32Array ? colors.slice() : Uint32Array.from(colors, hexToRGBA);
+    this.base.set(id, c); this.current.set(id, c.slice()); this.version++;
+  }
+  has(id) { return this.current.has(id); }
+  /** @returns {Uint32Array} colores actuales (no modificar directamente: usar set/fade) */
+  get(id) { const p = this.current.get(id); if (!p) throw new Error(`Paleta "${id}" no registrada`); return p; }
+  /** Concatena varias paletas en bancos de 16 (para tilemaps con varias paletas). null = banco vacío. */
+  banks(ids) {
+    const out = new Uint32Array(Math.max(1, ids.length) * 16);
+    ids.forEach((id, i) => { if (id !== null) out.set(this.get(id).subarray(0, 16), i * 16); });
+    return out;
+  }
+  setColor(id, index, rgba) { this.get(id)[index] = rgba >>> 0; this.version++; }
+  /** Cambia un color de la paleta BASE y de la actual (persistente frente a fade/reset): ciclos de color. */
+  setBase(id, index, rgba) { const b = this.base.get(id); if (!b) throw new Error(`Paleta "${id}" no registrada`); b[index] = rgba >>> 0; this.current.get(id)[index] = rgba >>> 0; this.version++; }
+  /**
+   * Mezcla hacia un color (como el registro BLDY del GBA): t ∈ [0,1]. Opera desde la paleta base.
+   * @param {string[]} [ids] por defecto, todas
+   */
+  fade(t, target = 0xff000000, ids = [...this.base.keys()]) {
+    const tr = target & 255, tg = (target >> 8) & 255, tb = (target >> 16) & 255;
+    for (const id of ids) {
+      const b = this.base.get(id), c = this.current.get(id);
+      for (let i = 0; i < b.length; i++) {
+        const r = b[i] & 255, g = (b[i] >> 8) & 255, bl = (b[i] >> 16) & 255;
+        c[i] = packRGBA(Math.round(r + (tr - r) * t), Math.round(g + (tg - g) * t), Math.round(bl + (tb - bl) * t));
+      }
+    }
+    this.version++;
+  }
+  reset(ids = [...this.base.keys()]) { for (const id of ids) this.current.set(id, this.base.get(id).slice()); this.version++; }
+}
+
+return { hexToRGBA, PaletteManager };
+})();
+// ---- src/decoders/tiles.js
+__mod["src/decoders/tiles.js"] = (() => {
+/**
+ * Tiles 8×8 y su disposición en imágenes indexadas. Fuente: GBATEK, "LCD VRAM Character Data".
+ * Una "imagen indexada" es { width, height, pixels: Uint8Array (índice por píxel), paletteBank?: Uint8Array }.
+ */
+
+const TILE_BYTES = { 4: 32, 8: 64 };
+
+/** Número de tiles completos en `byteLength` bytes. */
+const tileCount = (byteLength, bpp) => Math.floor(byteLength / TILE_BYTES[bpp]);
+
+/**
+ * Decodifica un tile a 64 índices (fila a fila).
+ * 4bpp: nibble bajo = píxel izquierdo. 8bpp: 1 byte por píxel.
+ * @param {Uint8Array} bytes @param {number} tileIndex @param {4|8} bpp @param {Uint8Array} [out]
+ */
+function decodeTile(bytes, tileIndex, bpp, out = new Uint8Array(64), baseOffset = 0) {
+  const size = TILE_BYTES[bpp];
+  if (!size) throw new RangeError(`bpp no soportado: ${bpp}`);
+  const o = baseOffset + tileIndex * size;
+  if (o < 0 || o + size > bytes.length) throw new RangeError(`Tile ${tileIndex} fuera de límites`);
+  if (bpp === 4) for (let i = 0; i < 32; i++) { const b = bytes[o + i]; out[i * 2] = b & 15; out[i * 2 + 1] = b >> 4; }
+  else out.set(bytes.subarray(o, o + 64));
+  return out;
+}
+
+/**
+ * Dibuja 64 índices de tile en una imagen indexada con volteos opcionales.
+ * @param {{width:number,pixels:Uint8Array}} img
+ */
+function blitTile(img, tile, px, py, hflip = false, vflip = false, { bank = 0, skipZero = false } = {}) {
+  for (let y = 0; y < 8; y++) {
+    const sy = vflip ? 7 - y : y;
+    const row = (py + y) * img.width + px;
+    for (let x = 0; x < 8; x++) {
+      const v = tile[sy * 8 + (hflip ? 7 - x : x)];
+      if (skipZero && v === 0) continue;
+      img.pixels[row + x] = v;
+      if (img.paletteBank) img.paletteBank[row + x] = bank;
+    }
+  }
+}
+
+/**
+ * Dispone tiles consecutivos en una cuadrícula, fila a fila (equivale al mapeo OBJ 1D de un sprite
+ * de `widthTiles` de ancho). El ancho NO se deduce: lo aporta la estructura que referencia los datos
+ * o el usuario.
+ * @param {Uint8Array} bytes @param {4|8} bpp @param {number} widthTiles
+ * @param {object} [o] firstTile, count
+ */
+function tilesToIndexedImage(bytes, bpp, widthTiles, { firstTile = 0, count } = {}) {
+  if (!Number.isInteger(widthTiles) || widthTiles < 1) throw new RangeError('widthTiles debe ser un entero ≥ 1');
+  const total = tileCount(bytes.length, bpp) - firstTile;
+  const n = Math.max(0, Math.min(count ?? total, total));
+  const heightTiles = Math.max(1, Math.ceil(n / widthTiles));
+  const img = { width: widthTiles * 8, height: heightTiles * 8, pixels: new Uint8Array(widthTiles * 8 * heightTiles * 8), tiles: n };
+  const t = new Uint8Array(64);
+  for (let i = 0; i < n; i++) blitTile(img, decodeTile(bytes, firstTile + i, bpp, t), (i % widthTiles) * 8, Math.floor(i / widthTiles) * 8);
+  return img;
+}
+
+return { TILE_BYTES, tileCount, decodeTile, blitTile, tilesToIndexedImage };
+})();
+// ---- src/engine/TileManager.js
+__mod["src/engine/TileManager.js"] = (() => {
+/**
+ * TileManager — conjuntos de tiles 8×8 decodificados a índices (64 bytes por tile).
+ * La decodificación se hace una sola vez al registrar; dibujar es copiar índices.
+ */
+const { decodeTile, tileCount } = __mod["src/decoders/tiles.js"];
+class TileManager {
+  constructor() { this.sets = new Map(); }
+  /** @param {Uint8Array} raw datos GBA 4bpp/8bpp */
+  register(id, raw, bpp = 4) {
+    const n = tileCount(raw.length, bpp);
+    const indices = new Uint8Array(n * 64);
+    const t = new Uint8Array(64);
+    for (let i = 0; i < n; i++) indices.set(decodeTile(raw, i, bpp, t), i * 64);
+    this.sets.set(id, { bpp, count: n, indices });
+  }
+  get(id) { const s = this.sets.get(id); if (!s) throw new Error(`Tileset "${id}" no registrado`); return s; }
+  /** 64 índices del tile `n` (vista, sin copia). */
+  tile(id, n) {
+    const s = this.get(id);
+    if (n < 0 || n >= s.count) throw new RangeError(`Tile ${n} fuera de "${id}" (${s.count} tiles)`);
+    return s.indices.subarray(n * 64, n * 64 + 64);
+  }
+}
+
+return { TileManager };
+})();
+// ---- src/decoders/tilemap.js
+__mod["src/decoders/tilemap.js"] = (() => {
+/**
+ * Tilemaps de fondos. Fuente: GBATEK, "LCD VRAM BG Screen Data Format".
+ * Fondo de texto: u16 por entrada = tile (bits 0–9), hflip (10), vflip (11), paleta (12–15).
+ * Fondo afín: u8 por entrada = tile.
+ */
+const { decodeTile, blitTile } = __mod["src/decoders/tiles.js"];
+function parseTextEntry(v) {
+  return { tile: v & 0x3ff, hflip: !!(v & 0x400), vflip: !!(v & 0x800), palette: (v >> 12) & 15 };
+}
+const packTextEntry = ({ tile, hflip = false, vflip = false, palette = 0 }) =>
+  (tile & 0x3ff) | (hflip ? 0x400 : 0) | (vflip ? 0x800 : 0) | ((palette & 15) << 12);
+
+/**
+ * Índice de entrada dentro de los datos de mapa para la celda (x, y) de un fondo de texto de
+ * widthTiles × heightTiles. Los fondos mayores de 32 se componen de screenblocks de 32×32 en orden
+ * de bloque (GBATEK): SB0 arriba-izq, SB1 arriba-der (si ancho 64), SB2/SB3 abajo.
+ */
+function textBgEntryIndex(x, y, widthTiles) {
+  const sbx = x >> 5, sby = y >> 5;
+  const sbPerRow = widthTiles > 32 ? 2 : 1;
+  return (sby * sbPerRow + sbx) * 1024 + (y & 31) * 32 + (x & 31);
+}
+
+/**
+ * Renderiza un fondo de texto a imagen indexada con banco de paleta por píxel.
+ * @param {Uint8Array} tileBytes datos de tiles (charblock)
+ * @param {Uint8Array} mapBytes entradas u16 LE
+ * @param {object} o widthTiles, heightTiles (32|64), bpp (4|8), screenblocks (true = orden GBA; false = filas lineales)
+ */
+function renderTextBg(tileBytes, mapBytes, { widthTiles, heightTiles, bpp = 4, screenblocks = true, onError } = {}) {
+  const img = { width: widthTiles * 8, height: heightTiles * 8, pixels: new Uint8Array(widthTiles * heightTiles * 64), paletteBank: new Uint8Array(widthTiles * heightTiles * 64) };
+  const t = new Uint8Array(64);
+  for (let y = 0; y < heightTiles; y++) for (let x = 0; x < widthTiles; x++) {
+    const idx = screenblocks ? textBgEntryIndex(x, y, widthTiles) : y * widthTiles + x;
+    if (idx * 2 + 1 >= mapBytes.length) { onError?.(`Entrada de mapa ${idx} fuera de datos`); continue; }
+    const e = parseTextEntry(mapBytes[idx * 2] | (mapBytes[idx * 2 + 1] << 8));
+    try { decodeTile(tileBytes, e.tile, bpp, t); } catch { onError?.(`Tile ${e.tile} inexistente en (${x},${y})`); continue; }
+    blitTile(img, t, x * 8, y * 8, e.hflip, e.vflip, { bank: bpp === 4 ? e.palette : 0 });
+  }
+  return img;
+}
+
+/** Fondo afín: entradas u8, siempre 8bpp, sin volteo ni paleta por tile. */
+function renderAffineBg(tileBytes, mapBytes, sizeTiles) {
+  const img = { width: sizeTiles * 8, height: sizeTiles * 8, pixels: new Uint8Array(sizeTiles * sizeTiles * 64) };
+  const t = new Uint8Array(64);
+  for (let i = 0; i < sizeTiles * sizeTiles && i < mapBytes.length; i++) blitTile(img, decodeTile(tileBytes, mapBytes[i], 8, t), (i % sizeTiles) * 8, Math.floor(i / sizeTiles) * 8);
+  return img;
+}
+
+return { parseTextEntry, packTextEntry, textBgEntryIndex, renderTextBg, renderAffineBg };
+})();
+// ---- src/decoders/image.js
+__mod["src/decoders/image.js"] = (() => {
+/**
+ * Conversión de imágenes indexadas a RGBA (compatible con Canvas ImageData).
+ * Sin dependencias del DOM: devuelve { width, height, data: Uint8ClampedArray }.
+ */
+
+/**
+ * @param {{width:number,height:number,pixels:Uint8Array,paletteBank?:Uint8Array}} img
+ * @param {Uint32Array} palette colores RGBA empaquetados; con paletteBank, 16 colores por banco
+ * @param {object} [o] transparentZero: índice 0 de cada banco transparente (regla de hardware para OBJ/BG)
+ * @returns {{width:number,height:number,data:Uint8ClampedArray, outOfPalette:number}}
+ */
+function indexedToRGBA(img, palette, { transparentZero = false } = {}) {
+  const data = new Uint8ClampedArray(img.width * img.height * 4);
+  const out = new Uint32Array(data.buffer);
+  let outOfPalette = 0;
+  for (let i = 0; i < img.pixels.length; i++) {
+    const v = img.pixels[i];
+    if (transparentZero && v === 0) continue;
+    const idx = img.paletteBank ? img.paletteBank[i] * 16 + v : v;
+    if (idx >= palette.length) { outOfPalette++; out[i] = 0xffff00ff; continue; } // magenta = error visible
+    out[i] = palette[idx];
+  }
+  return { width: img.width, height: img.height, data, outOfPalette };
+}
+
+/** Recorta una imagen indexada (para separar fotogramas de una hoja de sprites). */
+function cropIndexed(img, x, y, w, h) {
+  const r = { width: w, height: h, pixels: new Uint8Array(w * h) };
+  if (img.paletteBank) r.paletteBank = new Uint8Array(w * h);
+  for (let j = 0; j < h; j++) {
+    const s = (y + j) * img.width + x;
+    r.pixels.set(img.pixels.subarray(s, s + w), j * w);
+    if (img.paletteBank) r.paletteBank.set(img.paletteBank.subarray(s, s + w), j * w);
+  }
+  return r;
+}
+
+return { indexedToRGBA, cropIndexed };
+})();
+// ---- src/engine/TilemapManager.js
+__mod["src/engine/TilemapManager.js"] = (() => {
+/**
+ * TilemapManager — capas de fondo con entradas en formato de fondo de texto GBA
+ * (tile bits 0–9, hflip 10, vflip 11, banco de paleta 12–15). Las capas se componen a una imagen
+ * indexada una vez; el color se aplica con la paleta actual (rápido ante fundidos).
+ */
+const { parseTextEntry } = __mod["src/decoders/tilemap.js"];
+const { blitTile } = __mod["src/decoders/tiles.js"];
+const { indexedToRGBA } = __mod["src/decoders/image.js"];
+class TilemapManager {
+  /** @param {import('./TileManager.js').TileManager} tiles @param {import('./PaletteManager.js').PaletteManager} palettes */
+  constructor(tiles, palettes) { this.tiles = tiles; this.palettes = palettes; this.maps = new Map(); this.errors = []; }
+
+  /** @param {{tileset:string,width:number,height:number,palettes:(string|null)[],layers:{entries:number[]}[]}} def */
+  register(id, def) {
+    const layers = def.layers.map((layer, li) => {
+      const img = { width: def.width * 8, height: def.height * 8, pixels: new Uint8Array(def.width * def.height * 64), paletteBank: new Uint8Array(def.width * def.height * 64) };
+      layer.entries.forEach((v, i) => {
+        const e = parseTextEntry(v);
+        let t;
+        try { t = this.tiles.tile(def.tileset, e.tile); } catch (err) { this.errors.push(`${id}[capa ${li}] celda ${i}: ${err.message}`); return; }
+        // índice 0 transparente en todas las capas (regla de hardware); el fondo se ve a través
+        blitTile(img, t, (i % def.width) * 8, Math.floor(i / def.width) * 8, e.hflip, e.vflip, { bank: e.palette, skipZero: true });
+      });
+      return { img };
+    });
+    this.maps.set(id, { def, layers, cache: new Map() });
+  }
+
+  /** RGBA de una capa con la paleta vigente; cacheado por versión de paleta. */
+  layerRGBA(id, layer = 0) {
+    const m = this.maps.get(id); if (!m) throw new Error(`Tilemap "${id}" no registrado`);
+    const key = `${layer}:${this.palettes.version}`;
+    if (!m.cache.has(key)) {
+      m.cache.clear();
+      m.cache.set(key, indexedToRGBA(m.layers[layer].img, this.palettes.banks(m.def.palettes), { transparentZero: true }));
+    }
+    return m.cache.get(key);
+  }
+  size(id) { const d = this.maps.get(id).def; return { width: d.width * 8, height: d.height * 8, layers: d.layers.length }; }
+}
+
+return { TilemapManager };
+})();
+// ---- src/engine/AnimationManager.js
+__mod["src/engine/AnimationManager.js"] = (() => {
+/**
+ * AnimationManager — reproduce secuencias con la MISMA semántica que el motor de sprites de
+ * pokeemerald (src/sprite.c: BeginAnim, ContinueAnim, AnimCmd_frame/end/jump/loop, JumpToTopOfAnimLoop).
+ * Paso de tiempo: 1 tick = 1 fotograma de 60 Hz. Comandos:
+ *   {frame, duration, hflip?, vflip?} | {end:true} | {jump:target} | {loop:count}
+ * Comportamiento reproducido:
+ *   - un frame de duración d se muestra max(d,1) ticks;
+ *   - END detiene la animación en el último frame (animEnded);
+ *   - JUMP salta al índice destino y aplica ese frame en el mismo tick;
+ *   - LOOP(n) vuelve al inicio del bloque (tras el LOOP anterior o desde el principio) n veces:
+ *     el bloque se ejecuta n+1 veces en total (comportamiento real de JumpToTopOfAnimLoop).
+ */
+const typeOf = (c) => (c === undefined ? undefined : 'frame' in c ? 'frame' : 'end' in c ? 'end' : 'jump' in c ? 'jump' : 'loop');
+
+class AnimationPlayer {
+  /** @param {Array<Array<object>>} sequences */
+  constructor(sequences) { this.sequences = sequences; this.start(0); }
+
+  start(animNum) {
+    this.animNum = animNum; this.cmdIndex = 0; this.ended = false; this.loopCounter = 0; this.paused = false;
+    this.delay = 0;
+    const c = this.#cmd();
+    if (typeOf(c) !== 'end') this.#applyFrame(c); // BeginAnim: imageValue != -1
+  }
+  #seq() { return this.sequences[this.animNum]; }
+  #cmd(i = this.cmdIndex) { return this.#seq()[i] ?? { end: true }; } // fin implícito si falta END
+  #applyFrame(c) {
+    if (typeOf(c) !== 'frame') return; // datos mal formados: se ignora (el juego leería basura)
+    this.delay = c.duration ? c.duration - 1 : 0;
+    this.image = c.frame; this.hflip = !!c.hflip; this.vflip = !!c.vflip;
+  }
+  /** Avanza un tick (ContinueAnim). */
+  tick(depth = 0) {
+    if (depth > 64) throw new Error('Bucle de animación sin frames (LOOP/JUMP anidados sin avanzar)');
+    if (this.delay) { this.delay--; return; }
+    if (this.paused) return;
+    this.cmdIndex++;
+    this.#dispatch(depth);
+  }
+  #dispatch(depth) {
+    const c = this.#cmd();
+    switch (typeOf(c)) {
+      case 'frame': this.#applyFrame(c); break;
+      case 'end': this.cmdIndex--; this.ended = true; break;
+      case 'jump': this.cmdIndex = c.jump; this.#applyFrame(this.#cmd()); break;
+      case 'loop':
+        if (this.loopCounter) this.loopCounter--; else this.loopCounter = c.loop;
+        this.#jumpToTopOfLoop();
+        this.tick(depth + 1);
+        break;
+    }
+  }
+  #jumpToTopOfLoop() {
+    if (!this.loopCounter) return;
+    this.cmdIndex--;
+    while (typeOf(this.#seq()[this.cmdIndex - 1]) !== 'loop') { if (this.cmdIndex === 0) break; this.cmdIndex--; }
+    this.cmdIndex--;
+  }
+}
+
+class AnimationManager {
+  constructor() { this.defs = new Map(); this.players = new Set(); }
+  register(id, def) { this.defs.set(id, def); }
+  get(id) { const d = this.defs.get(id); if (!d) throw new Error(`Animación "${id}" no registrada`); return d; }
+  /** Crea un reproductor; si se pasa `onFrame`, se llama tras cada tick con el estado. */
+  create(id, animNum = 0) { const p = new AnimationPlayer(this.get(id).sequences); p.start(animNum); this.players.add(p); return p; }
+  destroy(p) { this.players.delete(p); }
+  tick() { for (const p of this.players) p.tick(); }
+}
+
+return { AnimationPlayer, AnimationManager };
+})();
+// ---- src/engine/SpriteManager.js
+__mod["src/engine/SpriteManager.js"] = (() => {
+/**
+ * SpriteManager — definiciones de sprites (tileset + paleta + tamaño de fotograma, mapeo OBJ 1D) e
+ * instancias en pantalla. Fotograma k = tiles [k·n, (k+1)·n) con n = (w/8)·(h/8), dispuestos fila a fila
+ * (equivale a RequestSpriteFrameImageCopy con un array de imágenes en pokeemerald).
+ * Los fotogramas se rasterizan a RGBA bajo demanda y se cachean por versión de paleta.
+ */
+const { blitTile } = __mod["src/decoders/tiles.js"];
+const { indexedToRGBA } = __mod["src/decoders/image.js"];
+class SpriteManager {
+  constructor(tiles, palettes, animations) {
+    this.tiles = tiles; this.palettes = palettes; this.animations = animations;
+    this.defs = new Map(); this.instances = []; this.cache = new Map(); this.cacheVersion = -1;
+  }
+  register(id, def) {
+    const ts = this.tiles.get(def.tileset);
+    const perFrame = (def.frameWidth / 8) * (def.frameHeight / 8);
+    this.defs.set(id, { ...def, perFrame, frameCount: Math.floor(ts.count / perFrame) });
+  }
+  def(id) { const d = this.defs.get(id); if (!d) throw new Error(`Sprite "${id}" no registrado`); return d; }
+
+  /** Fotograma como RGBA { width, height, data }. */
+  frameRGBA(id, frame) {
+    if (this.cacheVersion !== this.palettes.version) { this.cache.clear(); this.cacheVersion = this.palettes.version; }
+    const key = `${id}:${frame}`;
+    if (this.cache.has(key)) return this.cache.get(key);
+    const d = this.def(id);
+    if (frame < 0 || frame >= d.frameCount) throw new RangeError(`Fotograma ${frame} fuera de "${id}" (${d.frameCount})`);
+    const wt = d.frameWidth / 8;
+    const img = { width: d.frameWidth, height: d.frameHeight, pixels: new Uint8Array(d.frameWidth * d.frameHeight) };
+    for (let k = 0; k < d.perFrame; k++) blitTile(img, this.tiles.tile(d.tileset, frame * d.perFrame + k), (k % wt) * 8, Math.floor(k / wt) * 8);
+    const rgba = indexedToRGBA(img, this.palettes.get(d.palette), { transparentZero: true });
+    this.cache.set(key, rgba);
+    return rgba;
+  }
+
+  /**
+   * Crea una instancia. Si `animation` se indica, un AnimationPlayer controla frame y volteos.
+   * @returns {{sprite:string,x:number,y:number,frame:number,hflip:boolean,vflip:boolean,priority:number,visible:boolean,anim?:object}}
+   */
+  spawn(sprite, { x = 0, y = 0, priority = 0, animation, animNum = 0 } = {}) {
+    this.def(sprite);
+    const inst = { sprite, x, y, frame: 0, hflip: false, vflip: false, priority, visible: true };
+    if (animation) inst.anim = this.animations.create(animation, animNum);
+    this.instances.push(inst);
+    return inst;
+  }
+  remove(inst) { this.instances = this.instances.filter((i) => i !== inst); if (inst.anim) this.animations.destroy(inst.anim); }
+  /** Sincroniza frame/volteos desde los reproductores (llamar tras AnimationManager.tick()). */
+  sync() { for (const i of this.instances) if (i.anim) { i.frame = i.anim.image ?? 0; i.hflip = i.anim.hflip; i.vflip = i.anim.vflip; } }
+  /** Instancias visibles, de menor a mayor prioridad de dibujo. */
+  drawList() { return this.instances.filter((i) => i.visible).sort((a, b) => a.priority - b.priority || a.y - b.y); }
+}
+
+return { SpriteManager };
+})();
+// ---- src/engine/AssetPack.js
+__mod["src/engine/AssetPack.js"] = (() => {
+/**
+ * Formato intermedio "gba-asset-pack" v1 (ver docs/ENGINE.md). El motor SOLO consume este formato:
+ * nunca lee una ROM. Los datos se mantienen indexados (tiles 4bpp + paletas) para conservar el
+ * comportamiento de paletas del GBA (cambios de paleta, fundidos) sin re-decodificar.
+ */
+const PACK_FORMAT = 'gba-asset-pack';
+const PACK_VERSION = 1;
+
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+/** Base64 propio (sin atob/btoa ni Buffer) para funcionar igual en navegador y Node. */
+function base64Encode(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 3) {
+    const n = (bytes[i] << 16) | ((bytes[i + 1] ?? 0) << 8) | (bytes[i + 2] ?? 0);
+    s += B64[(n >> 18) & 63] + B64[(n >> 12) & 63] + (i + 1 < bytes.length ? B64[(n >> 6) & 63] : '=') + (i + 2 < bytes.length ? B64[n & 63] : '=');
+  }
+  return s;
+}
+function base64Decode(str) {
+  const clean = str.replace(/\s+/g, '');
+  if (clean.length % 4 || /[^A-Za-z0-9+/=]/.test(clean)) throw new Error('Base64 inválido');
+  const pad = clean.endsWith('==') ? 2 : clean.endsWith('=') ? 1 : 0;
+  const out = new Uint8Array((clean.length / 4) * 3 - pad);
+  let o = 0;
+  for (let i = 0; i < clean.length; i += 4) {
+    const n = (B64.indexOf(clean[i]) << 18) | (B64.indexOf(clean[i + 1]) << 12) | ((B64.indexOf(clean[i + 2]) & 63) << 6) | (B64.indexOf(clean[i + 3]) & 63);
+    if (o < out.length) out[o++] = (n >> 16) & 255;
+    if (o < out.length) out[o++] = (n >> 8) & 255;
+    if (o < out.length) out[o++] = n & 255;
+  }
+  return out;
+}
+
+const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
+const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
+
+/**
+ * Valida un pack y devuelve { ok, errors, warnings }. No lanza: el llamador decide.
+ * Todas las referencias cruzadas (sprite→tileset, animación→sprite…) se comprueban.
+ */
+function validatePack(pack) {
+  const errors = [], warnings = [];
+  const err = (p, m) => errors.push(`${p}: ${m}`);
+  if (!isObj(pack)) return { ok: false, errors: ['El pack no es un objeto JSON'], warnings };
+  if (pack.format !== PACK_FORMAT) err('format', `debe ser "${PACK_FORMAT}"`);
+  if (pack.version !== PACK_VERSION) err('version', `versión ${pack.version} no soportada (se espera ${PACK_VERSION})`);
+  const lic = pack.meta?.license;
+  if (!lic || /^(unspecified|unknown|desconocid)/i.test(lic)) warnings.push('meta.license: sin licencia declarada. Verifica que tienes derechos sobre estos recursos antes de usarlos.');
+  const sec = (k) => (isObj(pack[k]) ? pack[k] : (pack[k] !== undefined && err(k, 'debe ser un objeto'), {}));
+  const palettes = sec('palettes'), tilesets = sec('tilesets'), tilemaps = sec('tilemaps'), sprites = sec('sprites'), animations = sec('animations');
+
+  for (const [id, p] of Object.entries(palettes)) {
+    if (!Array.isArray(p.colors) || !p.colors.length || p.colors.length % 16) err(`palettes.${id}.colors`, 'array de colores con longitud múltiplo de 16');
+    else p.colors.forEach((c, i) => COLOR_RE.test(c) || err(`palettes.${id}.colors[${i}]`, `"${c}" no es #rrggbb`));
+  }
+  for (const [id, t] of Object.entries(tilesets)) {
+    if (t.bpp !== 4 && t.bpp !== 8) err(`tilesets.${id}.bpp`, 'debe ser 4 u 8');
+    if (typeof t.data !== 'string') { err(`tilesets.${id}.data`, 'base64 requerido'); continue; }
+    try { const n = base64Decode(t.data).length; if (n % (t.bpp === 8 ? 64 : 32)) err(`tilesets.${id}.data`, `${n} bytes no es múltiplo del tamaño de tile`); }
+    catch (e) { err(`tilesets.${id}.data`, e.message); }
+  }
+  for (const [id, m] of Object.entries(tilemaps)) {
+    if (!tilesets[m.tileset]) err(`tilemaps.${id}.tileset`, `tileset "${m.tileset}" inexistente`);
+    if (!Number.isInteger(m.width) || !Number.isInteger(m.height) || m.width < 1 || m.height < 1) err(`tilemaps.${id}`, 'width/height enteros ≥ 1');
+    if (!Array.isArray(m.palettes) || m.palettes.some((p) => p !== null && !palettes[p])) err(`tilemaps.${id}.palettes`, 'lista de ids de paleta (uno por banco, null = sin usar)');
+    if (!Array.isArray(m.layers) || !m.layers.length) err(`tilemaps.${id}.layers`, 'al menos una capa');
+    else m.layers.forEach((l, k) => { if (!Array.isArray(l.entries) || l.entries.length !== m.width * m.height) err(`tilemaps.${id}.layers[${k}].entries`, `se esperan ${m.width * m.height} entradas`); });
+  }
+  for (const [id, s] of Object.entries(sprites)) {
+    if (!tilesets[s.tileset]) err(`sprites.${id}.tileset`, `tileset "${s.tileset}" inexistente`);
+    if (!palettes[s.palette]) err(`sprites.${id}.palette`, `paleta "${s.palette}" inexistente`);
+    if (![8, 16, 32, 64].includes(s.frameWidth) || ![8, 16, 32, 64].includes(s.frameHeight)) err(`sprites.${id}`, 'frameWidth/frameHeight ∈ {8,16,32,64} (tamaños OBJ del GBA)');
+    if (s.mapping && s.mapping !== '1d') err(`sprites.${id}.mapping`, 'solo se admite "1d"');
+  }
+  for (const [id, a] of Object.entries(animations)) {
+    if (!sprites[a.sprite]) err(`animations.${id}.sprite`, `sprite "${a.sprite}" inexistente`);
+    if (!Array.isArray(a.sequences) || !a.sequences.length) { err(`animations.${id}.sequences`, 'al menos una secuencia'); continue; }
+    a.sequences.forEach((seq, k) => {
+      if (!Array.isArray(seq) || !seq.length) return err(`animations.${id}.sequences[${k}]`, 'secuencia vacía');
+      const last = seq.at(-1);
+      if (!('end' in last) && !('jump' in last)) warnings.push(`animations.${id}.sequences[${k}]: no termina en end/jump (se comportará como end implícito)`);
+      seq.forEach((c, j) => { if (!('frame' in c || 'end' in c || 'jump' in c || 'loop' in c)) err(`animations.${id}.sequences[${k}][${j}]`, 'comando desconocido'); if ('jump' in c && (c.jump < 0 || c.jump >= seq.length)) err(`animations.${id}.sequences[${k}][${j}]`, 'jump fuera de la secuencia'); });
+    });
+  }
+  return { ok: errors.length === 0, errors, warnings };
+}
+
+return { PACK_FORMAT, PACK_VERSION, base64Encode, base64Decode, validatePack };
+})();
+// ---- src/engine/Engine.js
+__mod["src/engine/Engine.js"] = (() => {
+/**
+ * Engine — integra los cinco gestores, carga packs "gba-asset-pack" y dibuja en un <canvas>.
+ * Bucle de tiempo fijo a 60 Hz (como el VBlank del GBA): la lógica avanza en ticks enteros y el dibujo
+ * ocurre una vez por requestAnimationFrame. La parte que toca el DOM está aislada en draw()/run().
+ */
+const { PaletteManager } = __mod["src/engine/PaletteManager.js"];
+const { TileManager } = __mod["src/engine/TileManager.js"];
+const { TilemapManager } = __mod["src/engine/TilemapManager.js"];
+const { AnimationManager } = __mod["src/engine/AnimationManager.js"];
+const { SpriteManager } = __mod["src/engine/SpriteManager.js"];
+const { validatePack, base64Decode } = __mod["src/engine/AssetPack.js"];
+const TICK_MS = 1000 / 60;
+
+class Engine {
+  constructor({ width = 240, height = 160, backdrop = '#000000' } = {}) {
+    this.width = width; this.height = height; this.backdrop = backdrop;
+    this.palettes = new PaletteManager();
+    this.tiles = new TileManager();
+    this.tilemaps = new TilemapManager(this.tiles, this.palettes);
+    this.animations = new AnimationManager();
+    this.sprites = new SpriteManager(this.tiles, this.palettes, this.animations);
+    this.background = []; // [{ tilemap, layer, scrollX, scrollY, priority }]
+    this.camera = { x: 0, y: 0 };
+    this.ticks = 0; this.onTick = null; this.log = [];
+    this._bitmaps = new Map();
+  }
+
+  /** Valida y registra un pack. Lanza si hay errores; las advertencias van a `log`. */
+  loadPack(pack) {
+    const v = validatePack(pack);
+    v.warnings.forEach((w) => this.log.push({ level: 'warn', message: w }));
+    if (!v.ok) { v.errors.forEach((e) => this.log.push({ level: 'error', message: e })); throw new Error(`Pack inválido:\n${v.errors.join('\n')}`); }
+    for (const [id, p] of Object.entries(pack.palettes ?? {})) this.palettes.register(id, p.colors);
+    for (const [id, t] of Object.entries(pack.tilesets ?? {})) this.tiles.register(id, base64Decode(t.data), t.bpp);
+    for (const [id, m] of Object.entries(pack.tilemaps ?? {})) this.tilemaps.register(id, m);
+    for (const [id, s] of Object.entries(pack.sprites ?? {})) this.sprites.register(id, s);
+    for (const [id, a] of Object.entries(pack.animations ?? {})) this.animations.register(id, a);
+    this.tilemaps.errors.forEach((e) => this.log.push({ level: 'error', message: e }));
+    return v;
+  }
+
+  addBackground(tilemap, { layer = 0, priority = 0, parallax = 1 } = {}) {
+    this.background.push({ tilemap, layer, priority, parallax });
+    this.background.sort((a, b) => a.priority - b.priority);
+  }
+
+  /** Un tick de lógica (1/60 s). */
+  step() {
+    this.ticks++;
+    this.onTick?.(this);
+    this.animations.tick();
+    this.sprites.sync();
+  }
+
+  // ------------------------------------------------------------ DOM / Canvas
+  #bitmap(key, rgba) {
+    let b = this._bitmaps.get(key);
+    if (!b || b.rgba !== rgba) {
+      const c = b?.canvas ?? document.createElement('canvas');
+      c.width = rgba.width; c.height = rgba.height;
+      c.getContext('2d').putImageData(new ImageData(rgba.data, rgba.width, rgba.height), 0, 0);
+      b = { canvas: c, rgba }; this._bitmaps.set(key, b);
+    }
+    return b.canvas;
+  }
+
+  /** Dibuja el estado actual en un contexto 2D de tamaño width×height (escalar con CSS). */
+  draw(ctx) {
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = this.backdrop; ctx.fillRect(0, 0, this.width, this.height);
+    const cx = Math.round(this.camera.x), cy = Math.round(this.camera.y);
+    for (const bg of this.background) {
+      ctx.drawImage(this.#bitmap(`bg:${bg.tilemap}:${bg.layer}`, this.tilemaps.layerRGBA(bg.tilemap, bg.layer)), -Math.round(cx * bg.parallax), -Math.round(cy * bg.parallax));
+    }
+    for (const s of this.sprites.drawList()) {
+      const img = this.#bitmap(`sp:${s.sprite}:${s.frame}`, this.sprites.frameRGBA(s.sprite, s.frame));
+      const x = Math.round(s.x - cx), y = Math.round(s.y - cy);
+      if (s.hflip || s.vflip) {
+        ctx.save(); ctx.translate(x + (s.hflip ? img.width : 0), y + (s.vflip ? img.height : 0)); ctx.scale(s.hflip ? -1 : 1, s.vflip ? -1 : 1); ctx.drawImage(img, 0, 0); ctx.restore();
+      } else ctx.drawImage(img, x, y);
+    }
+  }
+
+  /** Arranca el bucle en un canvas. Devuelve una función para detenerlo. */
+  run(canvas) {
+    canvas.width = this.width; canvas.height = this.height;
+    const ctx = canvas.getContext('2d');
+    let last = performance.now(), acc = 0, raf = 0, running = true;
+    const frame = (now) => {
+      if (!running) return;
+      acc = Math.min(acc + (now - last), 250); last = now; // evita la "espiral" tras pestaña en segundo plano
+      while (acc >= TICK_MS) { this.step(); acc -= TICK_MS; }
+      this.draw(ctx);
+      raf = requestAnimationFrame(frame);
+    };
+    raf = requestAnimationFrame(frame);
+    return () => { running = false; cancelAnimationFrame(raf); };
+  }
+}
+
+return { TICK_MS, Engine };
+})();
+// ---- src/demo/demoPack.js
+__mod["src/demo/demoPack.js"] = (() => {
+/**
+ * Pack de demostración generado por código: arte ORIGINAL (formas geométricas simples), licencia CC0.
+ * No contiene ni deriva de ningún recurso de terceros. Sirve para probar el motor sin ROM.
+ */
+const { base64Encode } = __mod["src/engine/AssetPack.js"];
+/** Lienzo de índices de w×h px → datos 4bpp GBA en orden de tiles 1D (fila de tiles a fila de tiles). */
+class Pix {
+  constructor(w, h) { this.w = w; this.h = h; this.p = new Uint8Array(w * h); }
+  set(x, y, c) { if (x >= 0 && y >= 0 && x < this.w && y < this.h) this.p[y * this.w + x] = c; }
+  rect(x, y, w, h, c) { for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) this.set(x + i, y + j, c); }
+  disc(cx, cy, r, c) { for (let y = -r; y <= r; y++) for (let x = -r; x <= r; x++) if (x * x + y * y <= r * r + r * 0.3) this.set(cx + x, cy + y, c); }
+  to4bpp() {
+    const out = new Uint8Array((this.w * this.h) / 2); let o = 0;
+    for (let ty = 0; ty < this.h; ty += 8) for (let tx = 0; tx < this.w; tx += 8)
+      for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x += 2) out[o++] = this.p[(ty + y) * this.w + tx + x] | (this.p[(ty + y) * this.w + tx + x + 1] << 4);
+    return out;
+  }
+}
+
+/** PRNG determinista para que el pack sea reproducible. */
+function rng(seed) { return () => ((seed = (Math.imul(seed ^ (seed >>> 15), 0x2c1b3c6d) + 0x9e3779b9) >>> 0) / 4294967296); }
+
+function buildDemoPack() {
+  const r = rng(7);
+  // ---- tiles de fondo: 16 tiles de 8×8 en una tira de 128×8
+  // 0 vacío · 1–3 hierba · 4 camino · 5–6 borde camino · 7 agua · 8 flor · 9 piedra · 10–13 árbol (2×2)
+  const bg = new Pix(14 * 8, 8);
+  const T = (n, fn) => fn(n * 8);
+  for (let n = 1; n <= 3; n++) T(n, (ox) => { bg.rect(ox, 0, 8, 8, 1); for (let k = 0; k < 5 + n; k++) bg.set(ox + ((r() * 8) | 0), (r() * 8) | 0, 2 + (k % 2)); });
+  T(4, (ox) => { bg.rect(ox, 0, 8, 8, 4); for (let k = 0; k < 4; k++) bg.set(ox + ((r() * 8) | 0), (r() * 8) | 0, 5); });
+  T(5, (ox) => { bg.rect(ox, 0, 8, 8, 4); bg.rect(ox, 0, 8, 2, 1); bg.rect(ox, 2, 8, 1, 3); });
+  T(6, (ox) => { bg.rect(ox, 0, 8, 8, 4); bg.rect(ox, 6, 8, 2, 1); bg.rect(ox, 5, 8, 1, 3); });
+  T(7, (ox) => { bg.rect(ox, 0, 8, 8, 12); for (let y = 0; y < 8; y += 4) for (let x = 0; x < 8; x++) bg.set(ox + x, y + ((x >> 1) % 2), 13 + ((x + y) % 3)); });
+  T(8, (ox) => { bg.rect(ox, 0, 8, 8, 1); bg.disc(ox + 3, 3, 1, 6); bg.set(ox + 3, 3, 7); bg.set(ox + 3, 6, 2); });
+  T(9, (ox) => { bg.rect(ox, 0, 8, 8, 1); bg.disc(ox + 4, 4, 2, 8); bg.set(ox + 3, 3, 9); });
+  // árbol 16×16 → tiles 10..13 (arriba-izq, arriba-der, abajo-izq, abajo-der)
+  const tree = new Pix(16, 16); tree.rect(0, 0, 16, 16, 1); tree.disc(8, 6, 6, 10); tree.disc(6, 4, 2, 11); tree.rect(7, 12, 2, 4, 9);
+  [[0, 0], [8, 0], [0, 8], [8, 8]].forEach(([sx, sy], k) => { for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) bg.set((10 + k) * 8 + x, y, tree.p[(sy + y) * 16 + sx + x]); });
+
+  // ---- mapa 40×30 tiles: hierba aleatoria, camino en cruz, estanque, árboles y flores
+  const W = 40, H = 30, ground = new Array(W * H).fill(0), top = new Array(W * H).fill(0);
+  for (let i = 0; i < W * H; i++) ground[i] = 1 + ((r() * 3) | 0);
+  const put = (x, y, t, layer = ground) => { if (x >= 0 && y >= 0 && x < W && y < H) layer[y * W + x] = t; };
+  for (let x = 0; x < W; x++) { put(x, 13, 5); put(x, 14, 4); put(x, 15, 4); put(x, 16, 6); }
+  for (let y = 0; y < H; y++) { put(19, y, 4); put(20, y, 4); }
+  for (let y = 3; y < 10; y++) for (let x = 26; x < 36; x++) put(x, y, 7);
+  for (let k = 0; k < 40; k++) put((r() * W) | 0, (r() * 12) | 0, r() < 0.6 ? 8 : 9);
+  const treeAt = (x, y) => { put(x, y, 10, top); put(x + 1, y, 11, top); put(x, y + 1, 12, top); put(x + 1, y + 1, 13, top); };
+  for (let x = 0; x < W; x += 2) { treeAt(x, 0); treeAt(x, H - 2); }
+  for (let y = 2; y < H - 2; y += 2) { treeAt(0, y); treeAt(W - 2, y); }
+  for (let k = 0; k < 10; k++) treeAt(4 + ((r() * 12) | 0) * 1, 19 + ((r() * 4) | 0) * 2);
+
+  // ---- personaje original 16×16: "farolillo" con ojos, 3 fotogramas (quieto, paso A, paso B) × 2 vistas
+  const hero = new Pix(16, 16 * 6);
+  const drawHero = (f, view, step) => {
+    const oy = f * 16, bob = step ? 1 : 0;
+    hero.disc(8, oy + 8 + bob, 5, 1); hero.disc(8, oy + 7 + bob, 3, 2);          // cuerpo
+    hero.rect(5, oy + 1 + bob, 6, 2, 3); hero.rect(7, oy + bob, 2, 1, 3);         // asa
+    if (view === 0) { hero.set(6, oy + 8 + bob, 4); hero.set(10, oy + 8 + bob, 4); } // de frente: dos ojos
+    else hero.set(11, oy + 8 + bob, 4);                                              // de lado: un ojo
+    const lx = step === 1 ? 4 : 5, rx = step === 2 ? 11 : 10;
+    hero.rect(lx, oy + 13 + bob, 2, 2, 5); hero.rect(rx, oy + 13 + bob, 2, 2, 5);  // patas
+  };
+  [0, 1, 2].forEach((s) => drawHero(s, 0, s)); [0, 1, 2].forEach((s) => drawHero(3 + s, 1, s));
+  // 16×16 en 1D = 4 tiles por fotograma en orden fila a fila: reordenar desde la tira vertical
+  const heroTiles = new Pix(32 * 6, 8); // 6 fotogramas × 4 tiles, en una fila de tiles
+  for (let f = 0; f < 6; f++) [[0, 0], [8, 0], [0, 8], [8, 8]].forEach(([sx, sy], k) => {
+    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) heroTiles.set((f * 4 + k) * 8 + x, y, hero.p[(f * 16 + sy + y) * 16 + sx + x]);
+  });
+
+  const pal = (cs) => ({ colors: [...cs, ...Array(16 - cs.length).fill('#000000')] });
+  const walk = (base, hflip = false) => [{ frame: base + 1, duration: 8, hflip }, { frame: base, duration: 8, hflip }, { frame: base + 2, duration: 8, hflip }, { frame: base, duration: 8, hflip }, { jump: 0 }];
+  return {
+    format: 'gba-asset-pack', version: 1,
+    meta: { name: 'Demo original', license: 'CC0-1.0', source: 'Generado por src/demo/demoPack.js' },
+    palettes: {
+      field: pal(['#000000', '#5aa95a', '#4b9150', '#78c06c', '#d8c08a', '#c4a870', '#f07c8c', '#fff2a0', '#8f969c', '#c2c8cc', '#2f7d46', '#4ea862', '#3d7fd0', '#5d9ae0', '#8ab9ef', '#c8e2ff']),
+      hero: pal(['#000000', '#e8a33c', '#fff1b8', '#6b4a2b', '#1d1d2b', '#6b4a2b']),
+    },
+    tilesets: { field: { bpp: 4, data: base64Encode(bg.to4bpp()) }, hero: { bpp: 4, data: base64Encode(heroTiles.to4bpp()) } },
+    tilemaps: { field: { tileset: 'field', width: W, height: H, palettes: ['field'], layers: [{ entries: ground }, { entries: top }] } },
+    sprites: { hero: { tileset: 'hero', palette: 'hero', frameWidth: 16, frameHeight: 16, mapping: '1d' } },
+    animations: {
+      hero: { sprite: 'hero', sequences: [
+        [{ frame: 0, duration: 0 }, { end: true }],            // 0 quieto de frente
+        walk(0),                                               // 1 andar de frente
+        [{ frame: 3, duration: 0 }, { end: true }],            // 2 quieto de lado
+        walk(3),                                               // 3 andar a la derecha
+        [{ frame: 3, duration: 0, hflip: true }, { end: true }], // 4 quieto mirando a la izquierda
+        walk(3, true),                                         // 5 andar a la izquierda (volteo del frame)
+      ] },
+    },
+  };
+}
+
+return { buildDemoPack };
+})();
+// ---- web/engine-demo.js
+__mod["web/engine-demo.js"] = (() => {
+/**
+ * Demo del motor: carga un pack (el de demostración o uno del usuario) y, si contiene los recursos
+ * esperados (tilemap con 2 capas + sprite animado), permite moverse por el mapa. Con otros packs muestra
+ * el primer tilemap y el primer sprite disponibles.
+ */
+const { Engine } = __mod["src/engine/Engine.js"];
+const { buildDemoPack } = __mod["src/demo/demoPack.js"];
+const { hexToRGBA } = __mod["src/engine/PaletteManager.js"];
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const keys = new Set();
+addEventListener('keydown', (e) => { if (/^(Arrow|Key[WASD])/.test(e.code)) { keys.add(e.code); e.preventDefault(); } });
+addEventListener('keyup', (e) => keys.delete(e.code));
+$('screen').addEventListener('click', () => $('screen').focus());
+
+let stop = null, engine = null;
+
+function start(pack, label) {
+  stop?.();
+  engine = new Engine({ width: 240, height: 160, backdrop: '#000000' });
+  try { engine.loadPack(pack); }
+  catch (e) { showLog(engine.log); $('status').textContent = `${label}: inválido`; return; }
+  showLog(engine.log);
+  const mapId = Object.keys(pack.tilemaps ?? {})[0];
+  if (mapId) for (let l = 0; l < pack.tilemaps[mapId].layers.length; l++) engine.addBackground(mapId, { layer: l, priority: l });
+  const spriteId = Object.keys(pack.sprites ?? {})[0];
+  const animId = Object.entries(pack.animations ?? {}).find(([, a]) => a.sprite === spriteId)?.[0];
+  const mapSize = mapId ? engine.tilemaps.size(mapId) : { width: 240, height: 160 };
+  const hero = spriteId ? engine.sprites.spawn(spriteId, { x: mapSize.width / 2, y: mapSize.height / 2, priority: 1, animation: animId }) : null;
+  const hasWalk = animId && pack.animations[animId].sequences.length >= 6;
+
+  // Colisión sencilla para el pack de demostración: agua (tile 7) y cualquier tile de la capa superior
+  const blocked = (px, py) => {
+    if (!mapId) return false;
+    const m = pack.tilemaps[mapId], tx = Math.floor(px / 8), ty = Math.floor(py / 8);
+    if (tx < 0 || ty < 0 || tx >= m.width || ty >= m.height) return true;
+    const i = ty * m.width + tx;
+    return (m.layers[0].entries[i] & 0x3ff) === 7 || (m.layers[1]?.entries[i] & 0x3ff) > 0;
+  };
+  let facing = 'down', moving = false, anim = -1, fadeT = 0, fading = 0;
+  // Packs genéricos: elegir secuencia (por defecto la 1 si existe: en sprites de pokeemerald la 0 es un fotograma fijo)
+  const seqs = animId ? pack.animations[animId].sequences : [];
+  $('seqSel').innerHTML = seqs.map((q, k) => `<option value="${k}">${k}: ${q.length} comandos</option>`).join('') || '<option>—</option>';
+  $('seqSel').disabled = !seqs.length || hasWalk;
+  if (hero?.anim && !hasWalk && seqs.length) { anim = seqs.length > 1 ? 1 : 0; $('seqSel').value = String(anim); hero.anim.start(anim); }
+  $('seqSel').onchange = () => { if (hero?.anim) { anim = +$('seqSel').value; hero.anim.start(anim); } };
+  const water = pack.palettes.field ? pack.palettes.field.colors.slice(13, 16) : null;
+
+  engine.onTick = (e) => {
+    if (!hero) { // sin sprites: las flechas desplazan la cámara
+      const sp = 2;
+      if (keys.has('ArrowLeft') || keys.has('KeyA')) e.camera.x -= sp; if (keys.has('ArrowRight') || keys.has('KeyD')) e.camera.x += sp;
+      if (keys.has('ArrowUp') || keys.has('KeyW')) e.camera.y -= sp; if (keys.has('ArrowDown') || keys.has('KeyS')) e.camera.y += sp;
+      e.camera.x = Math.max(0, Math.min(Math.max(0, mapSize.width - e.width), e.camera.x));
+      e.camera.y = Math.max(0, Math.min(Math.max(0, mapSize.height - e.height), e.camera.y));
+    }
+    if (hero && !hasWalk) {
+      if (hero.anim?.ended && $('repeat').checked) hero.anim.start(anim); // conveniencia de la demo, no del juego
+      e.camera.x = 0; e.camera.y = 0;
+    } else if (hero) {
+      let dx = 0, dy = 0;
+      if (keys.has('ArrowLeft') || keys.has('KeyA')) dx = -1; else if (keys.has('ArrowRight') || keys.has('KeyD')) dx = 1;
+      else if (keys.has('ArrowUp') || keys.has('KeyW')) dy = -1; else if (keys.has('ArrowDown') || keys.has('KeyS')) dy = 1;
+      moving = !!(dx || dy);
+      if (dx) facing = dx < 0 ? 'left' : 'right'; else if (dy) facing = 'down';
+      const nx = hero.x + dx, ny = hero.y + dy;
+      const w = engine.sprites.def(hero.sprite).frameWidth, h = engine.sprites.def(hero.sprite).frameHeight;
+      if (moving && ![[nx + 3, ny + h - 3], [nx + w - 4, ny + h - 3]].some(([x, y]) => blocked(x, y))) { hero.x = nx; hero.y = ny; }
+      if (hasWalk) {
+        const want = facing === 'down' ? (moving ? 1 : 0) : facing === 'right' ? (moving ? 3 : 2) : (moving ? 5 : 4);
+        if (want !== anim) { anim = want; hero.anim.start(want); }
+      }
+      e.camera.x = Math.max(0, Math.min(mapSize.width - e.width, hero.x + w / 2 - e.width / 2));
+      e.camera.y = Math.max(0, Math.min(mapSize.height - e.height, hero.y + h / 2 - e.height / 2));
+    }
+    // ciclo de paleta del agua (rota 3 colores cada 12 ticks), como las animaciones de paleta del GBA
+    if (water && $('cycle').checked && e.ticks % 12 === 0) {
+      const k = (e.ticks / 12) % 3;
+      for (let i = 0; i < 3; i++) e.palettes.setBase('field', 13 + i, hexToRGBA(water[(i + k) % 3]));
+    }
+    if (fading) { fadeT = Math.max(0, Math.min(1, fadeT + fading / 40)); e.palettes.fade(fadeT); if (fadeT === 0 || fadeT === 1) fading = fadeT === 1 ? -1 : 0; if (fadeT === 0) e.palettes.reset(); }
+    if (e.ticks % 6 === 0) $('info').textContent = `tick ${e.ticks}\n${hero ? `sprite ${hero.sprite}  x=${hero.x} y=${hero.y}\nfotograma ${hero.frame}  hflip=${hero.hflip}\nanimación ${anim}  cmd ${hero.anim?.cmdIndex}  delay ${hero.anim?.delay}` : 'sin sprites'}\ncámara ${engine.camera.x | 0},${engine.camera.y | 0}`;
+  };
+  $('fade').onclick = () => { fading = 1; };
+  $('topLayer').onchange = () => { engine.background.forEach((b) => { if (b.layer === 1) b.hidden = !$('topLayer').checked; }); };
+  const origDraw = engine.draw.bind(engine);
+  engine.draw = (ctx) => { const saved = engine.background; engine.background = saved.filter((b) => !b.hidden); origDraw(ctx); engine.background = saved; };
+  stop = engine.run($('screen'));
+  $('status').textContent = `${label} — ${pack.meta?.name ?? 'sin nombre'} · licencia: ${pack.meta?.license ?? 'no declarada'}`;
+  $('screen').focus();
+}
+
+function showLog(log) {
+  $('log').innerHTML = log.length ? log.map((l) => `<div class="logitem ${l.level}">[${l.level}] ${esc(l.message)}</div>`).join('') : '<span class="hint">Sin errores ni advertencias.</span>';
+}
+
+$('demo').onclick = () => start(buildDemoPack(), 'Demo');
+$('packFile').onchange = async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  try { start(JSON.parse(await f.text()), f.name); }
+  catch (err) { showLog([{ level: 'error', message: `${f.name}: JSON no válido (${err.message})` }]); }
+};
+start(buildDemoPack(), 'Demo');
+
+return {  };
+})();
+</script>
+</body>
+</html>

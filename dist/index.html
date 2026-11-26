@@ -1,0 +1,3350 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Emulador GBA</title>
+<style>
+:root{--bg:#f3f4f7;--panel:#fff;--fg:#1b1f27;--muted:#5f6876;--line:#d8dce3;--accent:#3d5afe;--bad:#c62828;--pad:#2b2f3a;--padfg:#e9ecf2}
+@media (prefers-color-scheme:dark){:root{--bg:#111318;--panel:#1a1d24;--fg:#e6e9ef;--muted:#9aa3b1;--line:#2c313b;--accent:#7c8cff;--bad:#ff6b6b;--pad:#262a34}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--line)}
+.bar h1{font-size:16px;margin:0 8px 0 0}.bar h1 small{font-weight:400;color:var(--muted)}
+.btn{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--fg);border-radius:6px;padding:6px 11px;cursor:pointer}
+.btn:disabled{opacity:.45;cursor:default}.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}.btn.ghost{background:transparent}
+.btn.file input,.file input{display:none}
+.muted{color:var(--muted)}.small{font-size:12px}.bad{color:var(--bad)}
+main{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;padding:16px;max-width:1200px;margin:0 auto}
+@media (max-width:860px){main{grid-template-columns:1fr}}
+.stage{display:flex;flex-direction:column;align-items:center;gap:8px}
+.drop{width:100%;border:2px dashed var(--line);border-radius:10px;padding:18px;text-align:center}
+.drop.over{border-color:var(--accent)}
+body.loaded .drop{display:none}
+.screen-wrap{width:100%;max-width:960px;aspect-ratio:3/2;background:#000;border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.screen-wrap:fullscreen{max-width:none;border-radius:0}
+#screen{width:100%;height:100%;object-fit:contain;image-rendering:pixelated;image-rendering:crisp-edges;outline:none}
+.meta{margin:0}.status{margin:0;min-height:1.4em}.status.error{color:var(--bad)}
+.side details{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin-bottom:12px}
+.side summary{font-weight:600;cursor:pointer}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}
+.keymap{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:8px 0}
+.keyrow{display:flex;justify-content:space-between;font:inherit;border:1px solid var(--line);background:transparent;color:var(--fg);border-radius:6px;padding:4px 8px;cursor:pointer}
+kbd{font-family:ui-monospace,monospace;font-size:12px;border:1px solid var(--line);border-radius:4px;padding:0 4px}
+/* Controles en pantalla */
+.pad{width:100%;max-width:520px;display:grid;grid-template-columns:1fr 1fr;grid-template-areas:"sh sh" "dpad ab" "ss ss";gap:12px;user-select:none;touch-action:none;margin-top:6px}
+.pad button{font:600 14px system-ui;background:var(--pad);color:var(--padfg);border:0;border-radius:10px;touch-action:none}
+.pad button.down{filter:brightness(1.6)}
+.shoulders{grid-area:sh;display:flex;justify-content:space-between}.shoulders button{width:96px;height:36px}
+.dpad{grid-area:dpad;display:grid;grid-template:repeat(3,52px)/repeat(3,52px);justify-self:start}
+.dpad .up{grid-area:1/2}.dpad .left{grid-area:2/1}.dpad .right{grid-area:2/3}.dpad .down-k{grid-area:3/2}
+.ab{grid-area:ab;display:flex;gap:14px;justify-self:end;align-items:center}.ab button{width:64px;height:64px;border-radius:50%;font-size:20px}.ab .a{margin-bottom:28px}
+.ss{grid-area:ss;display:flex;gap:16px;justify-content:center}.ss button{width:84px;height:30px;border-radius:15px;font-size:12px}
+@media (pointer:fine){.pad{opacity:.9}}
+/* Panel de desarrollador */
+.dev{border-top:1px solid var(--line);background:var(--panel);padding:12px 16px}
+.dev-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:12px}
+.dev h3{font-size:13px;margin:0 0 6px}
+.dev pre{margin:0;font:12px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px;max-height:260px;overflow:auto;white-space:pre}
+</style>
+</head>
+<body>
+<header class="bar">
+  <h1>Emulador GBA <small>JavaScript nativo</small></h1>
+  <label class="btn primary file"><input type="file" id="romInput" accept=".gba,.agb,.bin">Seleccionar ROM…</label>
+  <button class="btn" id="btnToggle" disabled>Iniciar</button>
+  <button class="btn" id="btnReset" disabled>Reiniciar</button>
+  <button class="btn" id="btnFull">Pantalla completa</button>
+  <span id="fps" class="muted"></span>
+  <button class="btn ghost" id="btnDev" title="F2">Desarrollador</button>
+</header>
+
+<main>
+  <section class="stage">
+    <div id="dropZone" class="drop">
+      <p><b>Selecciona o arrastra tu ROM de Game Boy Advance (.gba).</b></p>
+      <p class="muted">El archivo se procesa solo en este navegador: no se envía ni se guarda en ningún servidor. Usa una copia que tengas derecho a utilizar.</p>
+    </div>
+    <div id="screenWrap" class="screen-wrap">
+      <canvas id="screen" width="240" height="160" tabindex="0" aria-label="Pantalla del juego"></canvas>
+    </div>
+    <p id="romMeta" class="meta muted"></p>
+    <p id="status" class="status" role="status"></p>
+
+    <div id="pad" class="pad" aria-label="Controles en pantalla">
+      <div class="shoulders"><button data-btn="L">L</button><button data-btn="R">R</button></div>
+      <div class="dpad">
+        <button data-btn="UP" class="up" aria-label="Arriba">▲</button>
+        <button data-btn="LEFT" class="left" aria-label="Izquierda">◀</button>
+        <button data-btn="RIGHT" class="right" aria-label="Derecha">▶</button>
+        <button data-btn="DOWN" class="down-k" aria-label="Abajo">▼</button>
+      </div>
+      <div class="ab"><button data-btn="B" class="b">B</button><button data-btn="A" class="a">A</button></div>
+      <div class="ss"><button data-btn="SELECT">Select</button><button data-btn="START">Start</button></div>
+    </div>
+  </section>
+
+  <aside class="side">
+    <details open><summary>Audio</summary>
+      <label class="row">Volumen <input type="range" id="volume" min="0" max="1" step="0.05" value="0.8"></label>
+      <label class="row"><input type="checkbox" id="mute"> Silenciar</label>
+      <label class="row">Velocidad <select id="speed"><option value="1" selected>×1</option><option value="2">×2</option><option value="0.5">×0,5</option></select></label>
+    </details>
+    <details open><summary>Partida</summary>
+      <p class="muted small">El juego guarda en el cartucho emulado y el navegador lo conserva (IndexedDB) al cerrar la página.</p>
+      <div class="row"><button class="btn" id="btnExport">Exportar .sav</button>
+        <label class="btn file"><input type="file" id="importInput" accept=".sav,.srm,.fla,.bin">Importar .sav</label></div>
+      <p class="muted small">Estados rápidos del emulador (aparte del guardado del juego):</p>
+      <div class="row"><select id="slot"><option>1</option><option>2</option><option>3</option></select>
+        <button class="btn" id="btnSaveState">Guardar estado</button><button class="btn" id="btnLoadState">Cargar estado</button></div>
+    </details>
+    <details><summary>Controles</summary>
+      <p class="muted small">Pulsa un botón y después la tecla que quieras asignarle.</p>
+      <div id="keymap" class="keymap"></div>
+      <button class="btn ghost" id="btnResetKeys">Restaurar teclas</button>
+    </details>
+  </aside>
+</main>
+
+<section id="devPanel" class="dev" hidden>
+  <div class="dev-grid">
+    <div><h3>CPU</h3><pre data-dbg="cpu"></pre></div>
+    <div><h3>Vídeo</h3><pre data-dbg="video"></pre>
+      <div class="row small">Capas: <label><input type="checkbox" data-layer="0" checked>BG0</label><label><input type="checkbox" data-layer="1" checked>BG1</label><label><input type="checkbox" data-layer="2" checked>BG2</label><label><input type="checkbox" data-layer="3" checked>BG3</label><label><input type="checkbox" data-layer="4" checked>OBJ</label></div></div>
+    <div><h3>IRQ · DMA · Timers · BIOS</h3><pre data-dbg="hw"></pre></div>
+    <div><h3>Memoria</h3><div class="row"><input id="memAddr" value="0x02000000" size="11"><button class="btn" id="memGo">Ver</button></div><pre data-dbg="mem"></pre></div>
+    <div><h3>Instrucciones <label class="small"><input type="checkbox" id="traceOn"> registrar</label></h3><pre data-dbg="trace"></pre></div>
+    <div><h3>Registro</h3><pre data-dbg="log"></pre></div>
+  </div>
+</section>
+<script>
+"use strict";
+const __mod = {};
+// ---- src/memory/bus.js
+__mod["src/memory/bus.js"] = (() => {
+/**
+ * Bus de memoria del GBA (GBATEK, "GBA Memory Map").
+ *
+ *   0x00000000 BIOS        16 KiB   (imagen propia HLE; protegida en lectura fuera de la BIOS)
+ *   0x02000000 EWRAM      256 KiB   espejo cada 0x40000
+ *   0x03000000 IWRAM       32 KiB   espejo cada 0x8000
+ *   0x04000000 E/S          1 KiB   → io.js
+ *   0x05000000 Paletas      1 KiB   espejo cada 0x400
+ *   0x06000000 VRAM        96 KiB   ventana de 128 KiB: 0x18000–0x1FFFF reflejan 0x10000–0x17FFF
+ *   0x07000000 OAM          1 KiB   espejo cada 0x400
+ *   0x08000000 ROM (WS0), 0x0A (WS1), 0x0C (WS2)  hasta 32 MiB cada una
+ *   0x0E000000 SRAM/Flash  bus de 8 bits
+ *
+ * Reglas de escritura de 8 bits (GBATEK): en paletas y en la zona BG de la VRAM el byte se duplica
+ * en el halfword; en la zona OBJ de la VRAM y en la OAM se ignora.
+ * Las lecturas sin dispositivo devuelven el "open bus": el último opcode leído por la CPU.
+ *
+ * Se asume una plataforma little-endian (todos los navegadores actuales) para usar vistas
+ * Uint16Array/Uint32Array sobre los mismos buffers.
+ */
+class Bus {
+  constructor() {
+    this.bios = new Uint8Array(0x4000);
+    this.ewram = new Uint8Array(0x40000);
+    this.iwram = new Uint8Array(0x8000);
+    this.pal = new Uint8Array(0x400);
+    this.vram = new Uint8Array(0x18000);
+    this.oam = new Uint8Array(0x400);
+    this.v16 = {}; this.v32 = {};
+    for (const k of ['bios', 'ewram', 'iwram', 'pal', 'vram', 'oam']) {
+      this.v16[k] = new Uint16Array(this[k].buffer); this.v32[k] = new Uint32Array(this[k].buffer);
+    }
+    this.rom = new Uint8Array(0); this.rom16 = new Uint16Array(0); this.rom32 = new Uint32Array(0); this.romMask = 0;
+    this.io = null;        // IO (io.js)
+    this.save = null;      // memoria de guardado (Flash/SRAM) o null
+    this.gpio = null;      // GPIO del cartucho (RTC) o null
+    this.cpu = null;
+    this.openBus = 0;      // último opcode leído (lo actualiza la CPU)
+    this.biosLatch = 0xe129f000; // valor devuelto al leer la BIOS desde fuera (GBATEK: tras el arranque)
+    // Ciclos de espera aproximados por región (acceso no secuencial de 16 bits) para el contador de ciclos
+    this.wait16 = new Uint8Array(16).fill(1);
+    this.wait32 = new Uint8Array(16).fill(1);
+    this.setWaitcnt(0);
+  }
+
+  loadRom(bytes) {
+    // Se rellena a una potencia de 2 alineada a 4 para poder usar vistas de 16/32 bits
+    let size = 1; while (size < bytes.length) size <<= 1;
+    const buf = new Uint8Array(Math.max(size, 4));
+    buf.set(bytes);
+    this.rom = buf; this.rom16 = new Uint16Array(buf.buffer); this.rom32 = new Uint32Array(buf.buffer);
+    this.romSize = bytes.length; this.romMask = buf.length - 1;
+  }
+
+  /** WAITCNT (0x04000204): ciclos de espera de la ROM y SRAM. Solo se usan para la contabilidad de ciclos. */
+  setWaitcnt(v) {
+    const nTab = [4, 3, 2, 8];
+    const sram = nTab[v & 3];
+    const ws0n = nTab[(v >> 2) & 3], ws0s = (v & 0x10) ? 1 : 2;
+    const ws1n = nTab[(v >> 5) & 3], ws1s = (v & 0x80) ? 1 : 4;
+    const ws2n = nTab[(v >> 8) & 3], ws2s = (v & 0x400) ? 1 : 8;
+    const prefetch = !!(v & 0x4000);
+    const w16 = this.wait16, w32 = this.wait32;
+    w16[0] = 1; w16[2] = 3; w16[3] = 1; w16[4] = 1; w16[5] = 1; w16[6] = 1; w16[7] = 1;
+    w32[0] = 1; w32[2] = 6; w32[3] = 1; w32[4] = 1; w32[5] = 2; w32[6] = 2; w32[7] = 1;
+    // Con prefetch activo, las lecturas secuenciales de código cuestan ~1 ciclo; se usa una media.
+    const rom = (n, s) => (prefetch ? Math.max(1, (s + 1)) : n + 1);
+    w16[8] = w16[9] = rom(ws0n, ws0s); w16[10] = w16[11] = rom(ws1n, ws1s); w16[12] = w16[13] = rom(ws2n, ws2s);
+    for (const r of [8, 9, 10, 11, 12, 13]) w32[r] = w16[r] + (prefetch ? 1 : 2);
+    w16[14] = w16[15] = w32[14] = w32[15] = sram + 1;
+    this.waitcnt = v;
+  }
+
+  // ---------------------------------------------------------------- lecturas
+  read8(addr) {
+    addr >>>= 0;
+    switch (addr >>> 24) {
+      case 0x0: return addr < 0x4000 ? this.#biosRead(addr, 1) : this.#open8(addr);
+      case 0x2: return this.ewram[addr & 0x3ffff];
+      case 0x3: return this.iwram[addr & 0x7fff];
+      case 0x4: return this.io.read8(addr);
+      case 0x5: return this.pal[addr & 0x3ff];
+      case 0x6: return this.vram[vramIndex(addr)];
+      case 0x7: return this.oam[addr & 0x3ff];
+      case 0x8: case 0x9: case 0xa: case 0xb: case 0xc: case 0xd: {
+        const a = addr & 0x1ffffff;
+        if (this.gpio && a >= 0xc4 && a < 0xca && this.gpio.readable) return (this.gpio.read(a & ~1) >> ((a & 1) * 8)) & 0xff;
+        return a < this.romSize ? this.rom[a] : ((a >> 1) >> ((a & 1) * 8)) & 0xff;
+      }
+      case 0xe: case 0xf: return this.save ? this.save.read8(addr & 0xffff) : 0xff;
+      default: return this.#open8(addr);
+    }
+  }
+
+  read16(addr) {
+    addr = (addr & ~1) >>> 0;
+    switch (addr >>> 24) {
+      case 0x0: return addr < 0x4000 ? this.#biosRead(addr, 2) : this.openBus & 0xffff;
+      case 0x2: return this.v16.ewram[(addr & 0x3ffff) >> 1];
+      case 0x3: return this.v16.iwram[(addr & 0x7fff) >> 1];
+      case 0x4: return this.io.read16(addr);
+      case 0x5: return this.v16.pal[(addr & 0x3ff) >> 1];
+      case 0x6: return this.v16.vram[vramIndex(addr) >> 1];
+      case 0x7: return this.v16.oam[(addr & 0x3ff) >> 1];
+      case 0x8: case 0x9: case 0xa: case 0xb: case 0xc: case 0xd: {
+        const a = addr & 0x1ffffff;
+        if (this.gpio && a >= 0xc4 && a < 0xca && this.gpio.readable) return this.gpio.read(a);
+        return a < this.romSize ? this.rom16[a >> 1] : (a >> 1) & 0xffff;
+      }
+      case 0xe: case 0xf: { const v = this.save ? this.save.read8(addr & 0xffff) : 0xff; return v * 0x101; }
+      default: return this.openBus & 0xffff;
+    }
+  }
+
+  read32(addr) {
+    addr = (addr & ~3) >>> 0;
+    switch (addr >>> 24) {
+      case 0x0: return addr < 0x4000 ? this.#biosRead(addr, 4) : this.openBus >>> 0;
+      case 0x2: return this.v32.ewram[(addr & 0x3ffff) >> 2];
+      case 0x3: return this.v32.iwram[(addr & 0x7fff) >> 2];
+      case 0x4: return (this.io.read16(addr) | (this.io.read16(addr + 2) << 16)) >>> 0;
+      case 0x5: return this.v32.pal[(addr & 0x3ff) >> 2];
+      case 0x6: return this.v32.vram[vramIndex(addr) >> 2];
+      case 0x7: return this.v32.oam[(addr & 0x3ff) >> 2];
+      case 0x8: case 0x9: case 0xa: case 0xb: case 0xc: case 0xd: {
+        const a = addr & 0x1ffffff;
+        if (this.gpio && a >= 0xc4 && a < 0xca && this.gpio.readable) return (this.read16(addr) | (this.read16(addr + 2) << 16)) >>> 0;
+        if (a < this.romSize) return this.rom32[a >> 2];
+        return (((a >> 1) & 0xffff) | ((((a + 2) >> 1) & 0xffff) << 16)) >>> 0;
+      }
+      case 0xe: case 0xf: { const v = this.save ? this.save.read8(addr & 0xffff) : 0xff; return (v * 0x01010101) >>> 0; }
+      default: return this.openBus >>> 0;
+    }
+  }
+
+  /** La BIOS solo se puede leer mientras se ejecuta código de la BIOS (protección). */
+  #biosRead(addr, size) {
+    if (this.cpu && this.cpu.pcInBios()) {
+      if (size === 1) return this.bios[addr];
+      if (size === 2) return this.v16.bios[addr >> 1];
+      return this.v32.bios[addr >> 2];
+    }
+    const v = this.biosLatch;
+    if (size === 1) return (v >>> ((addr & 3) * 8)) & 0xff;
+    if (size === 2) return (v >>> ((addr & 2) * 8)) & 0xffff;
+    return v >>> 0;
+  }
+  #open8(addr) { return (this.openBus >>> ((addr & 3) * 8)) & 0xff; }
+
+  // ---------------------------------------------------------------- escrituras
+  write8(addr, v) {
+    addr >>>= 0; v &= 0xff;
+    switch (addr >>> 24) {
+      case 0x2: this.ewram[addr & 0x3ffff] = v; return;
+      case 0x3: this.iwram[addr & 0x7fff] = v; return;
+      case 0x4: this.io.write8(addr, v); return;
+      case 0x5: this.v16.pal[(addr & 0x3fe) >> 1] = v * 0x101; return;
+      case 0x6: {
+        const i = vramIndex(addr);
+        // Zona BG: 0x00000–0x0FFFF en modos de tiles (0x13FFF en modos bitmap); el resto (OBJ) ignora bytes
+        const bgLimit = this.io && (this.io.dispcnt & 7) >= 3 ? 0x14000 : 0x10000;
+        if (i < bgLimit) this.v16.vram[i >> 1] = v * 0x101;
+        return;
+      }
+      case 0x7: return; // OAM ignora escrituras de 8 bits
+      case 0x8: case 0x9: case 0xa: case 0xb: case 0xc: case 0xd:
+        this.#romWrite(addr, v, 1); return;
+      case 0xe: case 0xf: if (this.save) this.save.write8(addr & 0xffff, v); return;
+      default: return;
+    }
+  }
+
+  write16(addr, v) {
+    addr = (addr & ~1) >>> 0; v &= 0xffff;
+    switch (addr >>> 24) {
+      case 0x2: this.v16.ewram[(addr & 0x3ffff) >> 1] = v; return;
+      case 0x3: this.v16.iwram[(addr & 0x7fff) >> 1] = v; return;
+      case 0x4: this.io.write16(addr, v); return;
+      case 0x5: this.v16.pal[(addr & 0x3ff) >> 1] = v; return;
+      case 0x6: this.v16.vram[vramIndex(addr) >> 1] = v; return;
+      case 0x7: this.v16.oam[(addr & 0x3ff) >> 1] = v; return;
+      case 0x8: case 0x9: case 0xa: case 0xb: case 0xc: case 0xd:
+        this.#romWrite(addr, v, 2); return;
+      case 0xe: case 0xf: if (this.save) this.save.write8(addr & 0xffff, (v >>> ((addr & 1) * 8)) & 0xff); return;
+      default: return;
+    }
+  }
+
+  write32(addr, v) {
+    addr = (addr & ~3) >>> 0; v >>>= 0;
+    switch (addr >>> 24) {
+      case 0x2: this.v32.ewram[(addr & 0x3ffff) >> 2] = v; return;
+      case 0x3: this.v32.iwram[(addr & 0x7fff) >> 2] = v; return;
+      case 0x4: this.io.write32(addr, v); return;
+      case 0x5: this.v32.pal[(addr & 0x3ff) >> 2] = v; return;
+      case 0x6: this.v32.vram[vramIndex(addr) >> 2] = v; return;
+      case 0x7: this.v32.oam[(addr & 0x3ff) >> 2] = v; return;
+      case 0x8: case 0x9: case 0xa: case 0xb: case 0xc: case 0xd:
+        this.#romWrite(addr, v & 0xffff, 2); this.#romWrite(addr + 2, v >>> 16, 2); return;
+      case 0xe: case 0xf: if (this.save) this.save.write8(addr & 0xffff, (v >>> ((addr & 3) * 8)) & 0xff); return;
+      default: return;
+    }
+  }
+
+  /** La ROM no se puede escribir; solo el puerto GPIO (RTC) en 0x080000C4–C9. */
+  #romWrite(addr, v, size) {
+    const a = addr & 0x1ffffff;
+    if (this.gpio && a >= 0xc4 && a < 0xca) {
+      if (size === 2) this.gpio.write(a & ~1, v);
+      else this.gpio.write(a & ~1, (a & 1) ? (v << 8) : v);
+    }
+  }
+}
+
+/** Índice en la VRAM de 96 KiB para una dirección del bloque 0x06xxxxxx. */
+function vramIndex(addr) {
+  let a = addr & 0x1ffff;
+  if (a >= 0x18000) a -= 0x8000;
+  return a;
+}
+
+return { Bus, vramIndex };
+})();
+// ---- src/memory/io.js
+__mod["src/memory/io.js"] = (() => {
+/**
+ * Registros de E/S 0x04000000–0x040003FF (GBATEK, "GBA I/O Map").
+ * Se guarda una copia de 16 bits de cada registro en `regs` (la usan la PPU y la APU para leer
+ * su configuración) y se despachan los efectos laterales a cada módulo.
+ */
+const REG = Object.freeze({
+  DISPCNT: 0x000, GREENSWAP: 0x002, DISPSTAT: 0x004, VCOUNT: 0x006,
+  BG0CNT: 0x008, BG1CNT: 0x00a, BG2CNT: 0x00c, BG3CNT: 0x00e,
+  BG0HOFS: 0x010, BG2PA: 0x020, BG2X: 0x028, BG2Y: 0x02c, BG3PA: 0x030, BG3X: 0x038, BG3Y: 0x03c,
+  WIN0H: 0x040, WIN1H: 0x042, WIN0V: 0x044, WIN1V: 0x046, WININ: 0x048, WINOUT: 0x04a,
+  MOSAIC: 0x04c, BLDCNT: 0x050, BLDALPHA: 0x052, BLDY: 0x054,
+  SOUND_START: 0x060, SOUND_END: 0x0a8, FIFO_A: 0x0a0, FIFO_B: 0x0a4,
+  DMA_START: 0x0b0, DMA_END: 0x0e0, TIMER_START: 0x100, TIMER_END: 0x110,
+  KEYINPUT: 0x130, KEYCNT: 0x132, RCNT: 0x134,
+  IE: 0x200, IF: 0x202, WAITCNT: 0x204, IME: 0x208, POSTFLG: 0x300, HALTCNT: 0x301,
+});
+
+class IO {
+  /** @param {object} emu referencias: bus, cpu, ppu, apu, timers, dma, irq, keypad, now() */
+  constructor(emu) {
+    this.emu = emu;
+    this.regs = new Uint16Array(0x200);
+    this.postflg = 0;
+    this.unknownWrites = new Map(); // registro de escrituras a registros no implementados (depuración)
+  }
+  get dispcnt() { return this.regs[0]; }
+
+  read8(addr) { const v = this.read16(addr & ~1); return (addr & 1) ? v >> 8 : v & 0xff; }
+
+  read16(addr) {
+    const off = addr & 0xffffff;
+    if (off >= 0x400) return 0;
+    const e = this.emu, r = this.regs;
+    switch (off & 0x3fe) {
+      case REG.DISPCNT: case REG.GREENSWAP: case REG.BG0CNT: case REG.BG1CNT: case REG.BG2CNT: case REG.BG3CNT:
+      case REG.WININ: case REG.WINOUT: case REG.BLDCNT: case REG.BLDALPHA:
+        return r[(off & 0x3fe) >> 1];
+      case REG.DISPSTAT: return e.ppu.dispstat;
+      case REG.VCOUNT: return e.ppu.vcount;
+      case REG.KEYINPUT: return e.keypad.keyinput;
+      case REG.KEYCNT: return e.keypad.keycnt;
+      case REG.IE: return e.irq.ie;
+      case REG.IF: return e.irq.if;
+      case REG.IME: return e.irq.ime;
+      case REG.WAITCNT: return e.bus.waitcnt;
+      case REG.POSTFLG: return this.postflg;
+      case REG.RCNT: return e.serial.readRcnt();
+      case 0x128: return e.serial.readSiocnt();
+      default: break;
+    }
+    if (off >= REG.TIMER_START && off < REG.TIMER_END) return e.timers.read((off - 0x100) >> 2, (off & 2) !== 0, e.now());
+    if (off >= REG.DMA_START && off < REG.DMA_END) {
+      const i = ((off - 0xb0) / 12) | 0, k = (off - 0xb0) % 12;
+      if (k === 10) return e.dma.ch[i].control; // solo el control es legible
+      return 0;
+    }
+    if (off >= REG.SOUND_START && off < REG.SOUND_END) return e.apu ? e.apu.read16(off) : r[off >> 1];
+    if (off === 0x128 || off === 0x120 || off === 0x12a || off === 0x150 || off === 0x154 || off === 0x158) return r[off >> 1]; // serie: sin cable
+    return 0;
+  }
+
+  write8(addr, v) {
+    const off = addr & 0xffffff;
+    if (off >= 0x400) return;
+    if (off === REG.HALTCNT) { this.#halt(v); return; }
+    if (off === REG.POSTFLG) { this.postflg = v & 1; return; }
+    if (off === REG.IF || off === REG.IF + 1) { this.emu.irq.acknowledge(v << ((off & 1) * 8)); return; }
+    if (off >= REG.FIFO_A && off < REG.FIFO_B + 4) { this.emu.apu?.fifoWrite8(off < REG.FIFO_B ? 0 : 1, v); return; }
+    // Resto: lectura-modificación-escritura del halfword (los registros de solo escritura usan la copia)
+    const base = off & 0x3fe;
+    const cur = this.regs[base >> 1];
+    const nv = (off & 1) ? (cur & 0x00ff) | (v << 8) : (cur & 0xff00) | v;
+    this.write16(addr & ~1, nv, off & 1 ? 0xff00 : 0x00ff);
+  }
+
+  write32(addr, v) {
+    const off = addr & 0xffffff;
+    if (off === REG.FIFO_A || off === REG.FIFO_B) { this.emu.apu?.fifoWrite32(off === REG.FIFO_A ? 0 : 1, v); return; }
+    this.write16(addr, v & 0xffff);
+    this.write16(addr + 2, v >>> 16);
+  }
+
+  /** @param {number} [byteMask] bytes realmente escritos (0xFFFF = halfword completo) */
+  write16(addr, v, byteMask = 0xffff) {
+    const off = addr & 0xfffffe;
+    if (off >= 0x400) return;
+    const e = this.emu, idx = off >> 1;
+    switch (off) {
+      case REG.DISPCNT: this.regs[idx] = v; return;
+      case REG.DISPSTAT: e.ppu.writeDispstat(v); return;
+      case REG.VCOUNT: return;
+      case REG.KEYINPUT: return;
+      case REG.KEYCNT: e.keypad.keycnt = v; e.keypad.check(); return;
+      case REG.IE: e.irq.ie = v & 0x3fff; return;
+      case REG.IF: e.irq.acknowledge(v & byteMask); return;
+      case REG.IME: e.irq.ime = v & 1; return;
+      case REG.WAITCNT: e.bus.setWaitcnt(v); return;
+      case REG.POSTFLG:
+        if (byteMask & 0x00ff) this.postflg = v & 1;
+        if (byteMask & 0xff00) this.#halt(v >> 8);
+        return;
+      default: break;
+    }
+    this.regs[idx] = v;
+    if (off >= 0x020 && off < 0x040) { e.ppu.affineWrite(off); return; }
+    if (off >= REG.SOUND_START && off < REG.SOUND_END) {
+      if (off >= REG.FIFO_A) { e.apu?.fifoWrite16(off < REG.FIFO_B ? 0 : 1, v); return; }
+      e.apu?.write16(off, v); return;
+    }
+    if (off >= REG.DMA_START && off < REG.DMA_END) {
+      const i = ((off - 0xb0) / 12) | 0, k = (off - 0xb0) % 12, c = e.dma.ch[i];
+      if (k === 0) c.sad = (c.sad & 0xffff0000) | v; else if (k === 2) c.sad = ((c.sad & 0xffff) | (v << 16)) >>> 0;
+      else if (k === 4) c.dad = (c.dad & 0xffff0000) | v; else if (k === 6) c.dad = ((c.dad & 0xffff) | (v << 16)) >>> 0;
+      else if (k === 8) c.cnt = v;
+      else if (k === 10) e.dma.writeControl(i, v);
+      return;
+    }
+    if (off >= REG.TIMER_START && off < REG.TIMER_END) { e.timers.write((off - 0x100) >> 2, (off & 2) !== 0, v, e.now()); return; }
+    if ((off >= 0x008 && off < 0x020) || (off >= 0x040 && off < 0x056)) return; // registros de vídeo: la PPU lee regs
+    if (off === REG.RCNT) { e.serial.writeRcnt(v); return; }
+    if (off === 0x128) { e.serial.writeSiocnt(v, e.now()); return; }
+    if (off >= 0x120 && off < 0x15c) return; // resto del puerto serie: datos (sin aparato conectado)
+    this.unknownWrites.set(off, (this.unknownWrites.get(off) || 0) + 1);
+  }
+
+  #halt(v) {
+    // HALTCNT: bit 7 = 0 → Halt; 1 → Stop (se trata como Halt hasta la siguiente interrupción)
+    this.emu.irq.halted = true;
+    if (v & 0x80) this.emu.irq.stopped = true;
+  }
+}
+
+return { REG, IO };
+})();
+// ---- src/cpu/arm.js
+__mod["src/cpu/arm.js"] = (() => {
+/**
+ * Instrucciones ARM (32 bits) del ARM7TDMI.
+ * Decodificación: tabla de 4096 entradas indexada por bits 27–20 y 7–4 del opcode.
+ * Cada entrada es una función ya especializada (sin volver a decodificar el formato en ejecución).
+ */
+const MODE_USR = 0x10; // no se importa de arm7tdmi.js para evitar una dependencia circular
+
+/** Desplazador de barril. Devuelve el resultado y deja el acarreo de salida en cpu.sc. */
+function shift(cpu, type, value, amount, byReg) {
+  value >>>= 0;
+  if (byReg) {
+    amount &= 0xff;
+    if (amount === 0) { cpu.sc = cpu.c; return value; }
+    switch (type) {
+      case 0: // LSL
+        if (amount < 32) { cpu.sc = (value >>> (32 - amount)) & 1; return (value << amount) >>> 0; }
+        cpu.sc = amount === 32 ? value & 1 : 0; return 0;
+      case 1: // LSR
+        if (amount < 32) { cpu.sc = (value >>> (amount - 1)) & 1; return value >>> amount; }
+        cpu.sc = amount === 32 ? value >>> 31 : 0; return 0;
+      case 2: // ASR
+        if (amount < 32) { cpu.sc = (value >> (amount - 1)) & 1; return (value >> amount) >>> 0; }
+        cpu.sc = value >>> 31; return cpu.sc ? 0xffffffff : 0;
+      default: { // ROR
+        const a = amount & 31;
+        if (a === 0) { cpu.sc = value >>> 31; return value; }
+        cpu.sc = (value >>> (a - 1)) & 1; return ((value >>> a) | (value << (32 - a))) >>> 0;
+      }
+    }
+  }
+  switch (type) {
+    case 0:
+      if (amount === 0) { cpu.sc = cpu.c; return value; }
+      cpu.sc = (value >>> (32 - amount)) & 1; return (value << amount) >>> 0;
+    case 1:
+      if (amount === 0) { cpu.sc = value >>> 31; return 0; } // LSR #32
+      cpu.sc = (value >>> (amount - 1)) & 1; return value >>> amount;
+    case 2:
+      if (amount === 0) { cpu.sc = value >>> 31; return cpu.sc ? 0xffffffff : 0; } // ASR #32
+      cpu.sc = (value >> (amount - 1)) & 1; return (value >> amount) >>> 0;
+    default:
+      if (amount === 0) { cpu.sc = value & 1; return ((cpu.c << 31) | (value >>> 1)) >>> 0; } // RRX
+      cpu.sc = (value >>> (amount - 1)) & 1; return ((value >>> amount) | (value << (32 - amount))) >>> 0;
+  }
+}
+
+/** Suma con banderas: devuelve el resultado y fija C y V. */
+function addFlags(cpu, a, b, carryIn = 0) {
+  const sum = a + b + carryIn;
+  const res = sum >>> 0;
+  cpu.c = sum > 0xffffffff ? 1 : 0;
+  cpu.v = ((~(a ^ b) & (a ^ res)) >>> 31) & 1;
+  return res;
+}
+/** Resta a − b − (1 − carryIn) con banderas (C = no hay préstamo). */
+function subFlags(cpu, a, b, carryIn = 1) {
+  const borrow = 1 - carryIn;
+  const res = (a - b - borrow) >>> 0;
+  cpu.c = a >= b + borrow ? 1 : 0;
+  cpu.v = (((a ^ b) & (a ^ res)) >>> 31) & 1;
+  return res;
+}
+const setNZ = (cpu, v) => { cpu.n = v >>> 31; cpu.z = v === 0 ? 1 : 0; };
+
+/** Lectura de 32 bits con rotación por desalineación (comportamiento de LDR en ARMv4). */
+function ldrRotated(bus, addr) {
+  const v = bus.read32(addr);
+  const rot = (addr & 3) * 8;
+  return rot ? ((v >>> rot) | (v << (32 - rot))) >>> 0 : v;
+}
+
+/** Multiplicación 32×32→64 (con o sin signo) sin BigInt: devuelve [lo, hi]. */
+function mul64(a, b, signed) {
+  let neg = false;
+  if (signed) {
+    if (a & 0x80000000) { a = (~a + 1) >>> 0; neg = !neg; }
+    if (b & 0x80000000) { b = (~b + 1) >>> 0; neg = !neg; }
+  }
+  const a0 = a & 0xffff, a1 = a >>> 16, b0 = b & 0xffff, b1 = b >>> 16;
+  const p00 = a0 * b0, p01 = a0 * b1, p10 = a1 * b0, p11 = a1 * b1;
+  const mid = p01 + p10; // < 2^33
+  let lo = p00 + (mid % 0x10000) * 0x10000;
+  let hi = p11 + Math.floor(mid / 0x10000) + Math.floor(lo / 0x100000000);
+  lo = lo >>> 0; hi = hi >>> 0;
+  if (neg) { lo = (~lo + 1) >>> 0; hi = (~hi + (lo === 0 ? 1 : 0)) >>> 0; }
+  return [lo, hi];
+}
+
+function buildArmTable(cpu) {
+  const bus = cpu.bus, r = cpu.r;
+  const table = new Array(4096);
+  const und = (op) => cpu.undefined(op);
+
+  // ------------------------------------------------------------ procesamiento de datos
+  function dataProc(opcode, s, kind) {
+    // kind: 0 = registro desplazado por inmediato, 1 = por registro, 2 = inmediato rotado
+    return (op) => {
+      const rn = (op >>> 16) & 15, rd = (op >>> 12) & 15;
+      let b;
+      let a;
+      if (kind === 2) {
+        const rot = ((op >>> 8) & 15) * 2, imm = op & 0xff;
+        b = rot ? ((imm >>> rot) | (imm << (32 - rot))) >>> 0 : imm;
+        cpu.sc = rot ? b >>> 31 : cpu.c;
+        a = r[rn];
+      } else if (kind === 0) {
+        b = shift(cpu, (op >>> 5) & 3, r[op & 15], (op >>> 7) & 31, false);
+        a = r[rn];
+      } else {
+        // Desplazamiento por registro: un ciclo extra; PC se lee como dirección + 12
+        cpu.cycles++;
+        const rm = op & 15;
+        const vm = rm === 15 ? r[15] + 4 : r[rm];
+        b = shift(cpu, (op >>> 5) & 3, vm, r[(op >>> 8) & 15], true);
+        a = rn === 15 ? r[15] + 4 : r[rn];
+      }
+      a >>>= 0;
+      let res, write = true, logical = false;
+      switch (opcode) {
+        case 0x0: res = (a & b) >>> 0; logical = true; break;           // AND
+        case 0x1: res = (a ^ b) >>> 0; logical = true; break;           // EOR
+        case 0x2: res = s ? subFlags(cpu, a, b) : (a - b) >>> 0; break; // SUB
+        case 0x3: res = s ? subFlags(cpu, b, a) : (b - a) >>> 0; break; // RSB
+        case 0x4: res = s ? addFlags(cpu, a, b) : (a + b) >>> 0; break; // ADD
+        case 0x5: res = s ? addFlags(cpu, a, b, cpu.c) : (a + b + cpu.c) >>> 0; break; // ADC
+        case 0x6: res = s ? subFlags(cpu, a, b, cpu.c) : (a - b - (1 - cpu.c)) >>> 0; break; // SBC
+        case 0x7: res = s ? subFlags(cpu, b, a, cpu.c) : (b - a - (1 - cpu.c)) >>> 0; break; // RSC
+        case 0x8: res = (a & b) >>> 0; logical = true; write = false; break; // TST
+        case 0x9: res = (a ^ b) >>> 0; logical = true; write = false; break; // TEQ
+        case 0xa: res = subFlags(cpu, a, b); write = false; break;      // CMP
+        case 0xb: res = addFlags(cpu, a, b); write = false; break;      // CMN
+        case 0xc: res = (a | b) >>> 0; logical = true; break;           // ORR
+        case 0xd: res = b; logical = true; break;                       // MOV
+        case 0xe: res = (a & ~b) >>> 0; logical = true; break;          // BIC
+        default: res = (~b) >>> 0; logical = true; break;               // MVN
+      }
+      if (s) {
+        if (rd === 15 && write) {
+          // MOVS/SUBS PC, ...: retorno de excepción, CPSR ← SPSR
+          if (cpu.hasSpsr()) cpu.cpsr = cpu.spsr;
+        } else {
+          setNZ(cpu, res);
+          if (logical) cpu.c = cpu.sc;
+        }
+      }
+      if (write) {
+        if (rd === 15) { cpu.branch(res); cpu.cycles += 2; } else r[rd] = res;
+      }
+    };
+  }
+
+  // ------------------------------------------------------------ PSR
+  const mrs = (useSpsr) => (op) => { r[(op >>> 12) & 15] = useSpsr ? cpu.spsr : cpu.cpsr; };
+  const msr = (useSpsr, imm) => (op) => {
+    let v;
+    if (imm) { const rot = ((op >>> 8) & 15) * 2, i = op & 0xff; v = rot ? ((i >>> rot) | (i << (32 - rot))) >>> 0 : i; }
+    else v = r[op & 15];
+    let mask = 0;
+    if (op & (1 << 19)) mask |= 0xff000000;
+    if (op & (1 << 16)) mask |= 0x000000ff;
+    if (op & (1 << 17)) mask |= 0x0000ff00;
+    if (op & (1 << 18)) mask |= 0x00ff0000;
+    if (useSpsr) { if (cpu.hasSpsr()) cpu.spsr = ((cpu.spsr & ~mask) | (v & mask)) >>> 0; return; }
+    if (cpu.mode === MODE_USR) mask &= 0xff000000; // en modo usuario solo se escriben las banderas
+    const nv = ((cpu.cpsr & ~mask) | (v & mask)) >>> 0;
+    const t = cpu.t;
+    cpu.cpsr = nv;
+    cpu.t = t; // MSR no cambia el estado Thumb
+  };
+
+  // ------------------------------------------------------------ multiplicaciones
+  const mul = (accumulate, s) => (op) => {
+    const rd = (op >>> 16) & 15, rn = (op >>> 12) & 15, rs = (op >>> 8) & 15, rm = op & 15;
+    let res = Math.imul(r[rm], r[rs]);
+    if (accumulate) res = (res + r[rn]) | 0;
+    res >>>= 0;
+    r[rd] = res;
+    cpu.cycles += accumulate ? 3 : 2;
+    if (s) setNZ(cpu, res);
+  };
+  const mull = (signed, accumulate, s) => (op) => {
+    const rdHi = (op >>> 16) & 15, rdLo = (op >>> 12) & 15, rs = (op >>> 8) & 15, rm = op & 15;
+    let [lo, hi] = mul64(r[rm], r[rs], signed);
+    if (accumulate) {
+      const sumLo = lo + r[rdLo];
+      lo = sumLo >>> 0;
+      hi = (hi + r[rdHi] + (sumLo > 0xffffffff ? 1 : 0)) >>> 0;
+    }
+    r[rdLo] = lo; r[rdHi] = hi;
+    cpu.cycles += accumulate ? 4 : 3;
+    if (s) { cpu.n = hi >>> 31; cpu.z = lo === 0 && hi === 0 ? 1 : 0; }
+  };
+
+  // ------------------------------------------------------------ SWP
+  const swp = (byte) => (op) => {
+    const rn = (op >>> 16) & 15, rd = (op >>> 12) & 15, rm = op & 15;
+    const addr = r[rn], src = r[rm];
+    if (byte) { const t = bus.read8(addr); bus.write8(addr, src & 0xff); r[rd] = t; }
+    else { const t = ldrRotated(bus, addr); bus.write32(addr, src); r[rd] = t; }
+    cpu.cycles += 3;
+  };
+
+  // ------------------------------------------------------------ BX
+  const bx = (op) => {
+    const v = r[op & 15];
+    cpu.t = v & 1;
+    cpu.branch(v);
+    cpu.cycles += 2;
+  };
+
+  // ------------------------------------------------------------ transferencias de halfword / con signo
+  const halfword = (p, u, immOff, w, l, sh) => (op) => {
+    const rn = (op >>> 16) & 15, rd = (op >>> 12) & 15;
+    const offset = immOff ? ((op >>> 4) & 0xf0) | (op & 15) : r[op & 15];
+    const base = r[rn];
+    const addr = p ? (u ? base + offset : base - offset) >>> 0 : base;
+    const wbAddr = (u ? base + offset : base - offset) >>> 0;
+    if (l) {
+      let v;
+      if (sh === 1) { // LDRH (desalineado: rota 8 bits)
+        v = bus.read16(addr);
+        if (addr & 1) v = ((v >>> 8) | (v << 24)) >>> 0;
+      } else if (sh === 2) { v = (bus.read8(addr) << 24) >> 24 >>> 0; } // LDRSB
+      else { // LDRSH (desalineado: se comporta como LDRSB)
+        v = (addr & 1) ? ((bus.read8(addr) << 24) >> 24) >>> 0 : ((bus.read16(addr) << 16) >> 16) >>> 0;
+      }
+      if (!p || w) r[rn] = wbAddr;
+      if (rd === 15) { cpu.branch(v); cpu.cycles += 2; } else r[rd] = v;
+      cpu.cycles += 2 + bus.wait16[addr >>> 24 & 15];
+    } else {
+      const v = rd === 15 ? r[15] + 4 : r[rd];
+      bus.write16(addr, v & 0xffff);
+      if (!p || w) r[rn] = wbAddr;
+      cpu.cycles += 1 + bus.wait16[addr >>> 24 & 15];
+    }
+  };
+
+  // ------------------------------------------------------------ LDR/STR
+  const single = (regOff, p, u, byte, w, l) => (op) => {
+    const rn = (op >>> 16) & 15, rd = (op >>> 12) & 15;
+    let offset;
+    if (regOff) {
+      offset = shift(cpu, (op >>> 5) & 3, r[op & 15], (op >>> 7) & 31, false);
+    } else offset = op & 0xfff;
+    const base = r[rn];
+    const wbAddr = (u ? base + offset : base - offset) >>> 0;
+    const addr = p ? wbAddr : base;
+    if (l) {
+      const v = byte ? bus.read8(addr) : ldrRotated(bus, addr);
+      if (!p || w) r[rn] = wbAddr;
+      if (rd === 15) { cpu.branch(v); cpu.cycles += 2; } else r[rd] = v;
+      cpu.cycles += 2 + bus.wait32[addr >>> 24 & 15];
+    } else {
+      const v = rd === 15 ? r[15] + 4 : r[rd];
+      if (byte) bus.write8(addr, v & 0xff); else bus.write32(addr, v);
+      if (!p || w) r[rn] = wbAddr;
+      cpu.cycles += 1 + bus.wait32[addr >>> 24 & 15];
+    }
+  };
+
+  // ------------------------------------------------------------ LDM/STM
+  const block = (p, u, s, w, l) => (op) => {
+    const rn = (op >>> 16) & 15;
+    let list = op & 0xffff;
+    let count = 0;
+    for (let k = 0; k < 16; k++) if (list & (1 << k)) count++;
+    let empty = false;
+    if (list === 0) { list = 0x8000; count = 16; empty = true; } // ARMv4: lista vacía → r15, base ± 0x40
+    const base = r[rn];
+    let addr;
+    if (u) addr = p ? base + 4 : base;
+    else addr = p ? base - count * 4 : base - count * 4 + 4;
+    addr >>>= 0;
+    const newBase = (u ? base + count * 4 : base - count * 4) >>> 0;
+    const userBank = s && !(l && (list & 0x8000));
+    cpu.cycles += count + 1;
+    if (l) {
+      if (w) r[rn] = newBase;
+      for (let k = 0; k < 16; k++) {
+        if (!(list & (1 << k))) continue;
+        const v = bus.read32(addr);
+        addr = (addr + 4) >>> 0;
+        if (k === 15) {
+          if (s && cpu.hasSpsr()) cpu.cpsr = cpu.spsr; // LDM ^ con PC: retorno de excepción
+          cpu.branch(v); cpu.cycles += 2;
+        } else if (userBank) cpu.setUserReg(k, v);
+        else r[k] = v;
+      }
+    } else {
+      let first = true;
+      for (let k = 0; k < 16; k++) {
+        if (!(list & (1 << k))) continue;
+        let v;
+        if (k === 15) v = r[15] + 4;
+        else if (k === rn && !first && w) v = newBase; // base no primera: se guarda el valor nuevo
+        else v = userBank ? cpu.getUserReg(k) : r[k];
+        bus.write32(addr, v);
+        addr = (addr + 4) >>> 0;
+        first = false;
+      }
+      if (w) r[rn] = newBase;
+    }
+    if (empty) r[rn] = (u ? base + 0x40 : base - 0x40) >>> 0;
+  };
+
+  // ------------------------------------------------------------ saltos
+  const b = (link) => (op) => {
+    const off = (op << 8) >> 6; // 24 bits con signo × 4
+    if (link) r[14] = cpu.next;
+    cpu.branch(r[15] + off);
+    cpu.cycles += 2;
+  };
+  const swi = (op) => { cpu.cycles += 2; cpu.swi((op >>> 16) & 0xff); };
+
+  // ------------------------------------------------------------ construcción de la tabla
+  for (let i = 0; i < 4096; i++) {
+    const hi = i >>> 4, lo = i & 15; // hi = bits 27–20, lo = bits 7–4
+    const top = hi >>> 5;            // bits 27–25
+    let h = und;
+    if (top === 0) {
+      if (lo === 9) {
+        if ((hi & 0xfc) === 0x00) h = mul((hi & 2) !== 0, (hi & 1) !== 0);
+        else if ((hi & 0xf8) === 0x08) h = mull((hi & 4) !== 0, (hi & 2) !== 0, (hi & 1) !== 0);
+        else if ((hi & 0xfb) === 0x10) h = swp((hi & 4) !== 0);
+      } else if ((lo & 9) === 9) {
+        const sh = (lo >>> 1) & 3;
+        const l = (hi & 1) !== 0;
+        if (sh !== 0 && !(!l && sh !== 1)) h = halfword((hi & 0x10) !== 0, (hi & 8) !== 0, (hi & 4) !== 0, (hi & 2) !== 0, l, sh);
+        else if (sh === 1) h = halfword((hi & 0x10) !== 0, (hi & 8) !== 0, (hi & 4) !== 0, (hi & 2) !== 0, l, sh);
+      } else if (hi === 0x12 && lo === 1) h = bx;
+      else if ((hi & 0xfb) === 0x10 && lo === 0) h = mrs((hi & 4) !== 0);
+      else if ((hi & 0xfb) === 0x12 && lo === 0) h = msr((hi & 4) !== 0, false);
+      else {
+        const opcode = (hi >>> 1) & 15, s = (hi & 1) !== 0;
+        if (opcode >= 8 && opcode <= 11 && !s) h = und;
+        else h = dataProc(opcode, s, (lo & 1) ? 1 : 0);
+      }
+    } else if (top === 1) {
+      const opcode = (hi >>> 1) & 15, s = (hi & 1) !== 0;
+      if ((hi & 0xfb) === 0x32) h = msr((hi & 4) !== 0, true);
+      else if (opcode >= 8 && opcode <= 11 && !s) h = und;
+      else h = dataProc(opcode, s, 2);
+    } else if (top === 2 || top === 3) {
+      if (top === 3 && (lo & 1)) h = und;
+      else h = single(top === 3, (hi & 0x10) !== 0, (hi & 8) !== 0, (hi & 4) !== 0, (hi & 2) !== 0, (hi & 1) !== 0);
+    } else if (top === 4) h = block((hi & 0x10) !== 0, (hi & 8) !== 0, (hi & 4) !== 0, (hi & 2) !== 0, (hi & 1) !== 0);
+    else if (top === 5) h = b((hi & 0x10) !== 0);
+    else if (top === 7 && (hi & 0x10)) h = swi;
+    else h = und; // coprocesador: no existe en el GBA
+    table[i] = h;
+  }
+  return table;
+}
+
+return { shift, addFlags, subFlags, ldrRotated, mul64, buildArmTable };
+})();
+// ---- src/cpu/thumb.js
+__mod["src/cpu/thumb.js"] = (() => {
+/**
+ * Instrucciones Thumb (16 bits) del ARM7TDMI: los 19 formatos del manual de ARM.
+ * Tabla de 1024 entradas indexada por los bits 15–6 del opcode.
+ */
+const { shift, addFlags, subFlags, ldrRotated } = __mod["src/cpu/arm.js"];
+function buildThumbTable(cpu) {
+  const bus = cpu.bus, r = cpu.r;
+  const table = new Array(1024);
+  const setNZ = (v) => { cpu.n = v >>> 31; cpu.z = v === 0 ? 1 : 0; };
+  const und = (op) => cpu.undefined(op);
+  const w16 = bus.wait16, w32 = bus.wait32;
+
+  // Formato 1: LSL/LSR/ASR Rd, Rs, #imm5
+  const shiftImm = (type) => (op) => {
+    const rd = op & 7, rs = (op >>> 3) & 7, amt = (op >>> 6) & 31;
+    const v = shift(cpu, type, r[rs], amt, false);
+    cpu.c = cpu.sc; r[rd] = v; setNZ(v);
+  };
+  // Formato 2: ADD/SUB Rd, Rs, Rn | #imm3
+  const addSub = (imm, sub) => (op) => {
+    const rd = op & 7, rs = (op >>> 3) & 7, x = (op >>> 6) & 7;
+    const b = imm ? x : r[x];
+    const v = sub ? subFlags(cpu, r[rs], b) : addFlags(cpu, r[rs], b);
+    r[rd] = v; setNZ(v);
+  };
+  // Formato 3: MOV/CMP/ADD/SUB Rd, #imm8
+  const imm8 = (kind, rd) => (op) => {
+    const imm = op & 0xff;
+    switch (kind) {
+      case 0: r[rd] = imm; setNZ(imm); break;
+      case 1: setNZ(subFlags(cpu, r[rd], imm)); break;
+      case 2: { const v = addFlags(cpu, r[rd], imm); r[rd] = v; setNZ(v); break; }
+      default: { const v = subFlags(cpu, r[rd], imm); r[rd] = v; setNZ(v); break; }
+    }
+  };
+  // Formato 4: operaciones de la ALU
+  const alu = (kind) => (op) => {
+    const rd = op & 7, rs = (op >>> 3) & 7;
+    const a = r[rd], b = r[rs];
+    let v;
+    switch (kind) {
+      case 0x0: v = (a & b) >>> 0; r[rd] = v; setNZ(v); break;                  // AND
+      case 0x1: v = (a ^ b) >>> 0; r[rd] = v; setNZ(v); break;                  // EOR
+      case 0x2: v = shift(cpu, 0, a, b, true); cpu.c = cpu.sc; r[rd] = v; setNZ(v); cpu.cycles++; break; // LSL
+      case 0x3: v = shift(cpu, 1, a, b, true); cpu.c = cpu.sc; r[rd] = v; setNZ(v); cpu.cycles++; break; // LSR
+      case 0x4: v = shift(cpu, 2, a, b, true); cpu.c = cpu.sc; r[rd] = v; setNZ(v); cpu.cycles++; break; // ASR
+      case 0x5: v = addFlags(cpu, a, b, cpu.c); r[rd] = v; setNZ(v); break;     // ADC
+      case 0x6: v = subFlags(cpu, a, b, cpu.c); r[rd] = v; setNZ(v); break;     // SBC
+      case 0x7: v = shift(cpu, 3, a, b, true); cpu.c = cpu.sc; r[rd] = v; setNZ(v); cpu.cycles++; break; // ROR
+      case 0x8: setNZ((a & b) >>> 0); break;                                     // TST
+      case 0x9: v = subFlags(cpu, 0, b); r[rd] = v; setNZ(v); break;            // NEG
+      case 0xa: setNZ(subFlags(cpu, a, b)); break;                               // CMP
+      case 0xb: setNZ(addFlags(cpu, a, b)); break;                               // CMN
+      case 0xc: v = (a | b) >>> 0; r[rd] = v; setNZ(v); break;                  // ORR
+      case 0xd: v = Math.imul(a, b) >>> 0; r[rd] = v; setNZ(v); cpu.cycles += 2; break; // MUL
+      case 0xe: v = (a & ~b) >>> 0; r[rd] = v; setNZ(v); break;                 // BIC
+      default: v = (~b) >>> 0; r[rd] = v; setNZ(v); break;                      // MVN
+    }
+  };
+  // Formato 5: registros altos y BX
+  const hiReg = (kind) => (op) => {
+    const rd = (op & 7) | ((op >>> 4) & 8), rs = (op >>> 3) & 15;
+    const b = r[rs];
+    switch (kind) {
+      case 0: { // ADD
+        const v = (r[rd] + b) >>> 0;
+        if (rd === 15) { cpu.branch(v); cpu.cycles += 2; } else r[rd] = v;
+        break;
+      }
+      case 1: setNZ(subFlags(cpu, r[rd], b)); break; // CMP
+      case 2: if (rd === 15) { cpu.branch(b); cpu.cycles += 2; } else r[rd] = b; break; // MOV
+      default: { // BX
+        cpu.t = b & 1;
+        cpu.branch(b);
+        cpu.cycles += 2;
+        break;
+      }
+    }
+  };
+  // Formato 6: LDR Rd, [PC, #imm8×4]
+  const ldrPc = (rd) => (op) => {
+    const addr = ((r[15] & ~2) + (op & 0xff) * 4) >>> 0;
+    r[rd] = bus.read32(addr);
+    cpu.cycles += 2 + w32[addr >>> 24 & 15];
+  };
+  // Formatos 7 y 8: transferencias con desplazamiento en registro
+  const regOff = (kind) => (op) => {
+    const rd = op & 7, rb = (op >>> 3) & 7, ro = (op >>> 6) & 7;
+    const addr = (r[rb] + r[ro]) >>> 0;
+    const w = w16[addr >>> 24 & 15];
+    // kind = bits 11–9. Formato 7 (bit 9 = 0): L (11), B (10). Formato 8 (bit 9 = 1): H (11), S (10).
+    switch (kind) {
+      case 0: bus.write32(addr, r[rd]); cpu.cycles += w + 1; break;                 // STR
+      case 1: bus.write16(addr, r[rd] & 0xffff); cpu.cycles += w; break;             // STRH
+      case 2: bus.write8(addr, r[rd] & 0xff); cpu.cycles += w; break;                // STRB
+      case 3: r[rd] = ((bus.read8(addr) << 24) >> 24) >>> 0; cpu.cycles += w + 1; break; // LDSB
+      case 4: r[rd] = ldrRotated(bus, addr); cpu.cycles += w + 2; break;            // LDR
+      case 5: { let v = bus.read16(addr); if (addr & 1) v = ((v >>> 8) | (v << 24)) >>> 0; r[rd] = v; cpu.cycles += w + 1; break; } // LDRH
+      case 6: r[rd] = bus.read8(addr); cpu.cycles += w + 1; break;                   // LDRB
+      default: r[rd] = (addr & 1) ? ((bus.read8(addr) << 24) >> 24) >>> 0 : ((bus.read16(addr) << 16) >> 16) >>> 0; cpu.cycles += w + 1; break; // LDSH
+    }
+  };
+  // Formato 9: LDR/STR con inmediato (palabra ×4 o byte)
+  const immOff = (byte, load) => (op) => {
+    const rd = op & 7, rb = (op >>> 3) & 7, imm = (op >>> 6) & 31;
+    const addr = (r[rb] + (byte ? imm : imm * 4)) >>> 0;
+    const w = w16[addr >>> 24 & 15];
+    if (load) { r[rd] = byte ? bus.read8(addr) : ldrRotated(bus, addr); cpu.cycles += w + 2; }
+    else { if (byte) bus.write8(addr, r[rd] & 0xff); else bus.write32(addr, r[rd]); cpu.cycles += w + 1; }
+  };
+  // Formato 10: LDRH/STRH con inmediato ×2
+  const halfImm = (load) => (op) => {
+    const rd = op & 7, rb = (op >>> 3) & 7;
+    const addr = (r[rb] + ((op >>> 6) & 31) * 2) >>> 0;
+    if (load) { let v = bus.read16(addr); if (addr & 1) v = ((v >>> 8) | (v << 24)) >>> 0; r[rd] = v; cpu.cycles += 2; }
+    else { bus.write16(addr, r[rd] & 0xffff); cpu.cycles += 1; }
+  };
+  // Formato 11: LDR/STR relativo a SP
+  const spRel = (load, rd) => (op) => {
+    const addr = (r[13] + (op & 0xff) * 4) >>> 0;
+    if (load) { r[rd] = ldrRotated(bus, addr); cpu.cycles += 2; } else { bus.write32(addr, r[rd]); cpu.cycles += 1; }
+  };
+  // Formato 12: ADD Rd, PC|SP, #imm8×4
+  const loadAddr = (sp, rd) => (op) => { r[rd] = sp ? (r[13] + (op & 0xff) * 4) >>> 0 : ((r[15] & ~2) + (op & 0xff) * 4) >>> 0; };
+  // Formato 13: ADD SP, #±imm7×4
+  const addSp = (op) => { const imm = (op & 0x7f) * 4; r[13] = (op & 0x80 ? r[13] - imm : r[13] + imm) >>> 0; };
+  // Formato 14: PUSH/POP
+  const pushPop = (pop, extra) => (op) => {
+    const list = op & 0xff;
+    if (pop) {
+      let addr = r[13];
+      for (let k = 0; k < 8; k++) if (list & (1 << k)) { r[k] = bus.read32(addr); addr = (addr + 4) >>> 0; cpu.cycles++; }
+      if (extra) { const v = bus.read32(addr); addr = (addr + 4) >>> 0; cpu.branch(v); cpu.cycles += 3; }
+      if (!list && !extra) addr = (addr + 0x40) >>> 0;
+      r[13] = addr;
+    } else {
+      let count = extra ? 1 : 0;
+      for (let k = 0; k < 8; k++) if (list & (1 << k)) count++;
+      let addr = (r[13] - count * 4) >>> 0;
+      r[13] = addr;
+      for (let k = 0; k < 8; k++) if (list & (1 << k)) { bus.write32(addr, r[k]); addr = (addr + 4) >>> 0; cpu.cycles++; }
+      if (extra) bus.write32(addr, r[14]);
+      if (!list && !extra) r[13] = (r[13] - 0x40) >>> 0;
+    }
+  };
+  // Formato 15: STMIA/LDMIA Rb!, {lista}
+  const multiple = (load, rb) => (op) => {
+    const list = op & 0xff;
+    let addr = r[rb];
+    if (!list) { // lista vacía: transfiere r15 y base += 0x40 (ARMv4)
+      if (load) cpu.branch(bus.read32(addr)); else bus.write32(addr, r[15] + 2);
+      r[rb] = (addr + 0x40) >>> 0; return;
+    }
+    let count = 0; for (let k = 0; k < 8; k++) if (list & (1 << k)) count++;
+    const end = (addr + count * 4) >>> 0;
+    if (load) {
+      for (let k = 0; k < 8; k++) if (list & (1 << k)) { r[k] = bus.read32(addr); addr = (addr + 4) >>> 0; cpu.cycles++; }
+      if (!(list & (1 << rb))) r[rb] = end;
+    } else {
+      let first = true;
+      for (let k = 0; k < 8; k++) if (list & (1 << k)) {
+        bus.write32(addr, k === rb && !first ? end : r[k]);
+        addr = (addr + 4) >>> 0; cpu.cycles++; first = false;
+      }
+      r[rb] = end;
+    }
+  };
+  // Formato 16: salto condicional; 17: SWI
+  const bcond = (cond) => (op) => {
+    if (!cpu.cond(cond)) return;
+    cpu.branch(r[15] + (((op & 0xff) << 24) >> 23));
+    cpu.cycles += 2;
+  };
+  const swi = (op) => { cpu.cycles += 2; cpu.swi(op & 0xff); };
+  // Formato 18: B incondicional
+  const b = (op) => { cpu.branch(r[15] + (((op & 0x7ff) << 21) >> 20)); cpu.cycles += 2; };
+  // Formato 19: BL (dos mitades)
+  const blHi = (op) => { r[14] = (r[15] + (((op & 0x7ff) << 21) >> 9)) >>> 0; };
+  const blLo = (op) => {
+    const ret = cpu.next | 1;
+    cpu.branch(r[14] + (op & 0x7ff) * 2);
+    r[14] = ret >>> 0;
+    cpu.cycles += 2;
+  };
+
+  for (let i = 0; i < 1024; i++) {
+    const op = i << 6; // bits 15–6
+    let h = und;
+    if ((op & 0xf800) < 0x1800) h = shiftImm((op >>> 11) & 3);
+    else if ((op & 0xf800) === 0x1800) h = addSub((op & 0x400) !== 0, (op & 0x200) !== 0);
+    else if ((op & 0xe000) === 0x2000) h = imm8((op >>> 11) & 3, (op >>> 8) & 7);
+    else if ((op & 0xfc00) === 0x4000) h = alu((op >>> 6) & 15);
+    else if ((op & 0xfc00) === 0x4400) h = hiReg((op >>> 8) & 3);
+    else if ((op & 0xf800) === 0x4800) h = ldrPc((op >>> 8) & 7);
+    else if ((op & 0xf000) === 0x5000) h = regOff((op >>> 9) & 7);
+    else if ((op & 0xe000) === 0x6000) h = immOff((op & 0x1000) !== 0, (op & 0x800) !== 0);
+    else if ((op & 0xf000) === 0x8000) h = halfImm((op & 0x800) !== 0);
+    else if ((op & 0xf000) === 0x9000) h = spRel((op & 0x800) !== 0, (op >>> 8) & 7);
+    else if ((op & 0xf000) === 0xa000) h = loadAddr((op & 0x800) !== 0, (op >>> 8) & 7);
+    else if ((op & 0xff00) === 0xb000) h = addSp;
+    else if ((op & 0xf600) === 0xb400) h = pushPop((op & 0x800) !== 0, (op & 0x100) !== 0);
+    else if ((op & 0xf000) === 0xc000) h = multiple((op & 0x800) !== 0, (op >>> 8) & 7);
+    else if ((op & 0xff00) === 0xdf00) h = swi;
+    else if ((op & 0xff00) === 0xde00) h = und;
+    else if ((op & 0xf000) === 0xd000) h = bcond((op >>> 8) & 15);
+    else if ((op & 0xf800) === 0xe000) h = b;
+    else if ((op & 0xf800) === 0xf000) h = blHi;
+    else if ((op & 0xf800) === 0xf800) h = blLo;
+    table[i] = h;
+  }
+  return table;
+}
+
+return { buildThumbTable };
+})();
+// ---- src/cpu/arm7tdmi.js
+__mod["src/cpu/arm7tdmi.js"] = (() => {
+/**
+ * Núcleo ARM7TDMI (ARMv4T). Referencias: ARM7TDMI Technical Reference Manual y GBATEK ("ARM CPU").
+ *
+ * Modelo de PC: mientras se ejecuta una instrucción, r[15] vale dirección + 8 (ARM) o + 4 (Thumb),
+ * como ve el programa en el hardware real por la segmentación. `next` es la dirección de la siguiente
+ * instrucción; escribir en r15 se hace siempre con branch(), que actualiza `next`.
+ *
+ * Modos y bancos: usr/sys comparten registros; fiq tiene r8–r14 propios; irq, svc, abt y und tienen
+ * r13–r14 y SPSR propios.
+ */
+const { buildArmTable } = __mod["src/cpu/arm.js"];
+const { buildThumbTable } = __mod["src/cpu/thumb.js"];
+const MODE = Object.freeze({ USR: 0x10, FIQ: 0x11, IRQ: 0x12, SVC: 0x13, ABT: 0x17, UND: 0x1b, SYS: 0x1f });
+const BANK = { 0x10: 0, 0x1f: 0, 0x11: 1, 0x12: 2, 0x13: 3, 0x17: 4, 0x1b: 5 };
+
+class ARM7TDMI {
+  constructor(bus) {
+    this.bus = bus;
+    bus.cpu = this;
+    this.r = new Uint32Array(16);
+    this.bankR13 = new Uint32Array(6); this.bankR14 = new Uint32Array(6); this.bankSpsr = new Uint32Array(6);
+    this.fiqR = new Uint32Array(5); this.usrR = new Uint32Array(5);
+    this.n = 0; this.z = 0; this.c = 0; this.v = 0; this.i = 0; this.f = 0; this.t = 0; this.mode = MODE.SYS;
+    this.next = 0;          // dirección de la siguiente instrucción
+    this.cycles = 0;        // ciclos consumidos (los suma el bucle de ejecución)
+    this.swiHandler = null; // HLE de la BIOS: (n) => void
+    this.undefinedHandler = null;
+    this.irq = null;        // Interrupts
+    this.trace = null;      // depuración: (pc, op, thumb) => void
+    this.armTable = buildArmTable(this);
+    this.thumbTable = buildThumbTable(this);
+  }
+
+  // ---------------------------------------------------------------- estado
+  get cpsr() {
+    return ((this.n << 31) | (this.z << 30) | (this.c << 29) | (this.v << 28) | (this.i << 7) | (this.f << 6) | (this.t << 5) | this.mode) >>> 0;
+  }
+  set cpsr(v) {
+    this.n = (v >>> 31) & 1; this.z = (v >>> 30) & 1; this.c = (v >>> 29) & 1; this.v = (v >>> 28) & 1;
+    this.i = (v >>> 7) & 1; this.f = (v >>> 6) & 1; this.t = (v >>> 5) & 1;
+    this.switchMode(v & 0x1f);
+  }
+  get spsr() { const b = BANK[this.mode]; return b ? this.bankSpsr[b] : this.cpsr; }
+  set spsr(v) { const b = BANK[this.mode]; if (b) this.bankSpsr[b] = v >>> 0; }
+  hasSpsr() { return BANK[this.mode] > 0; }
+
+  switchMode(newMode) {
+    if (BANK[newMode] === undefined) newMode = MODE.SYS; // modo inválido: se trata como sistema
+    const oldMode = this.mode;
+    if (oldMode === newMode) return;
+    const ob = BANK[oldMode], nb = BANK[newMode];
+    if (ob !== nb) {
+      this.bankR13[ob] = this.r[13]; this.bankR14[ob] = this.r[14];
+      if (oldMode === MODE.FIQ) for (let k = 0; k < 5; k++) { this.fiqR[k] = this.r[8 + k]; this.r[8 + k] = this.usrR[k]; }
+      if (newMode === MODE.FIQ) for (let k = 0; k < 5; k++) { this.usrR[k] = this.r[8 + k]; this.r[8 + k] = this.fiqR[k]; }
+      this.r[13] = this.bankR13[nb]; this.r[14] = this.bankR14[nb];
+    }
+    this.mode = newMode;
+  }
+
+  /** Registro de usuario (para LDM/STM con el bit S). */
+  getUserReg(n) {
+    if (n < 8 || n === 15) return this.r[n];
+    if (n < 13) return this.mode === MODE.FIQ ? this.usrR[n - 8] : this.r[n];
+    if (BANK[this.mode] === 0) return this.r[n];
+    return n === 13 ? this.bankR13[0] : this.bankR14[0];
+  }
+  setUserReg(n, v) {
+    if (n < 8 || n === 15) { this.r[n] = v; return; }
+    if (n < 13) { if (this.mode === MODE.FIQ) this.usrR[n - 8] = v; else this.r[n] = v; return; }
+    if (BANK[this.mode] === 0) { this.r[n] = v; return; }
+    if (n === 13) this.bankR13[0] = v; else this.bankR14[0] = v;
+  }
+
+  /** Estado tras el arranque de la BIOS (GBATEK, "BIOS RAM Usage"; pilas en IWRAM). */
+  resetToRom(entry = 0x08000000) {
+    this.r.fill(0);
+    this.bankR13.fill(0); this.bankR14.fill(0); this.bankSpsr.fill(0);
+    this.mode = MODE.SVC; this.r[13] = 0x03007fe0;
+    this.switchMode(MODE.IRQ); this.r[13] = 0x03007fa0;
+    this.switchMode(MODE.SYS); this.r[13] = 0x03007f00;
+    this.n = this.z = this.c = this.v = 0; this.i = 0; this.f = 0; this.t = 0;
+    this.branch(entry);
+  }
+
+  pcInBios() { return this.next < 0x4000 + 8; }
+
+  /** Salto: fija la siguiente instrucción (alineada según el estado). */
+  branch(addr) {
+    addr >>>= 0;
+    this.next = this.t ? addr & ~1 : addr & ~3;
+    this.r[15] = this.next;
+  }
+
+  // ---------------------------------------------------------------- excepciones
+  /** Excepción genérica: guarda CPSR en SPSR, cambia de modo, LR = dirección de retorno. */
+  exception(mode, vector, lr) {
+    const old = this.cpsr;
+    this.switchMode(mode);
+    this.bankSpsr[BANK[mode]] = old;
+    this.r[14] = lr >>> 0;
+    this.t = 0; this.i = 1;
+    if (mode === MODE.FIQ) this.f = 1;
+    this.branch(vector);
+  }
+  /** IRQ: el manejador vuelve con SUBS PC, LR, #4, así que LR = siguiente instrucción + 4. */
+  raiseIrq() { this.exception(MODE.IRQ, 0x18, this.next + 4); }
+
+  swi(n) {
+    if (this.swiHandler) { this.swiHandler(n); return; }
+    this.exception(MODE.SVC, 0x08, this.next);
+  }
+  undefined(op) {
+    this.undefinedHandler?.(op, this.t ? this.next - 2 : this.next - 4, this.t);
+    this.exception(MODE.UND, 0x04, this.next);
+  }
+
+  // ---------------------------------------------------------------- condición
+  cond(c) {
+    switch (c) {
+      case 0x0: return this.z === 1;
+      case 0x1: return this.z === 0;
+      case 0x2: return this.c === 1;
+      case 0x3: return this.c === 0;
+      case 0x4: return this.n === 1;
+      case 0x5: return this.n === 0;
+      case 0x6: return this.v === 1;
+      case 0x7: return this.v === 0;
+      case 0x8: return this.c === 1 && this.z === 0;
+      case 0x9: return this.c === 0 || this.z === 1;
+      case 0xa: return this.n === this.v;
+      case 0xb: return this.n !== this.v;
+      case 0xc: return this.z === 0 && this.n === this.v;
+      case 0xd: return this.z === 1 || this.n !== this.v;
+      case 0xe: return true;
+      default: return false; // 0xF: "nunca" en ARMv4
+    }
+  }
+
+  // ---------------------------------------------------------------- ejecución
+  /**
+   * Ejecuta instrucciones hasta consumir `budget` ciclos o quedar en HALT.
+   * Devuelve los ciclos realmente consumidos.
+   */
+  run(budget) {
+    const bus = this.bus, irq = this.irq;
+    const start = this.cycles, limit = start + budget;
+    const w16 = bus.wait16, w32 = bus.wait32;
+    const rom16 = bus.rom16, rom32 = bus.rom32, iw16 = bus.v16.iwram, iw32 = bus.v32.iwram;
+    const thumbT = this.thumbTable, armT = this.armTable, r = this.r;
+    while (this.cycles < limit) {
+      if (irq.halted) { this.cycles = limit; break; }
+      if (this.i === 0 && (irq.ime & 1) && (irq.ie & irq.if)) this.raiseIrq();
+      const pc = this.next, region = pc >>> 24;
+      if (this.t) {
+        let op;
+        if (region === 8 || region === 9) op = rom16[(pc & 0x1ffffff) >>> 1];
+        else if (region === 3) op = iw16[(pc & 0x7fff) >>> 1];
+        else op = bus.read16(pc);
+        bus.openBus = op * 0x10001;
+        r[15] = pc + 4; this.next = pc + 2;
+        this.cycles += w16[region & 15];
+        if (this.trace) this.trace(pc, op, 1);
+        thumbT[op >>> 6](op);
+      } else {
+        let op;
+        if (region === 8 || region === 9) op = rom32[(pc & 0x1ffffff) >>> 2];
+        else if (region === 3) op = iw32[(pc & 0x7fff) >>> 2];
+        else op = bus.read32(pc);
+        if (region === 0) bus.biosLatch = op;
+        bus.openBus = op;
+        r[15] = pc + 8; this.next = pc + 4;
+        this.cycles += w32[region & 15];
+        if (this.trace) this.trace(pc, op, 0);
+        const c = op >>> 28;
+        if (c !== 0xe && !this.cond(c)) continue;
+        armT[((op >>> 16) & 0xff0) | ((op >>> 4) & 0xf)](op);
+      }
+    }
+    return this.cycles - start;
+  }
+
+  /** Ejecuta exactamente una instrucción (depuración y pruebas). */
+  step() { const c = this.cycles; this.run(1); return this.cycles - c; }
+}
+
+return { MODE, ARM7TDMI };
+})();
+// ---- src/hardware/interrupts.js
+__mod["src/hardware/interrupts.js"] = (() => {
+/**
+ * Controlador de interrupciones (GBATEK, "GBA Interrupt Control").
+ * IE 0x04000200, IF 0x04000202 (escribir 1 borra), IME 0x04000208.
+ */
+const IRQ = Object.freeze({
+  VBLANK: 1 << 0, HBLANK: 1 << 1, VCOUNT: 1 << 2,
+  TIMER0: 1 << 3, TIMER1: 1 << 4, TIMER2: 1 << 5, TIMER3: 1 << 6,
+  SERIAL: 1 << 7, DMA0: 1 << 8, DMA1: 1 << 9, DMA2: 1 << 10, DMA3: 1 << 11,
+  KEYPAD: 1 << 12, GAMEPAK: 1 << 13,
+});
+
+class Interrupts {
+  constructor() { this.ie = 0; this.if = 0; this.ime = 0; this.halted = false; this.stopped = false; this.counts = new Uint32Array(14); }
+  request(mask) {
+    this.if |= mask;
+    for (let i = 0; i < 14; i++) if (mask & (1 << i)) this.counts[i]++;
+    if (this.ie & mask) this.halted = false; // HALT termina con (IE & IF) != 0, aunque IME = 0
+  }
+  /** ¿Debe la CPU entrar en la excepción IRQ? (falta comprobar el bit I del CPSR, en la CPU) */
+  pending() { return (this.ime & 1) !== 0 && (this.ie & this.if) !== 0; }
+  acknowledge(mask) { this.if &= ~mask; }
+}
+
+return { IRQ, Interrupts };
+})();
+// ---- src/hardware/timers.js
+__mod["src/hardware/timers.js"] = (() => {
+/**
+ * Timers 0–3 (GBATEK, "GBA Timers"). TMxCNT_L (contador/recarga) y TMxCNT_H (control):
+ * bits 0–1 prescaler (1, 64, 256, 1024), bit 2 cascada (cuenta desbordamientos del timer anterior),
+ * bit 6 IRQ, bit 7 habilitado. Al habilitarse se carga el valor de recarga.
+ *
+ * Evaluación perezosa: el contador se calcula a partir de los ciclos transcurridos; el emulador
+ * pregunta por el próximo desbordamiento para programar el evento con exactitud de ciclo.
+ */
+const { IRQ } = __mod["src/hardware/interrupts.js"];
+const PRESCALE = [0, 6, 8, 10]; // desplazamiento: 1, 64, 256, 1024 ciclos por cuenta
+
+class Timers {
+  constructor(irq) {
+    this.irq = irq;
+    this.onOverflow = null; // (index) => void, para el FIFO de audio
+    this.t = Array.from({ length: 4 }, () => ({ reload: 0, control: 0, counter: 0, enabled: false, cascade: false, shift: 0, frac: 0 }));
+    this.lastCycle = 0;
+  }
+
+  /** Avanza todos los timers hasta `now` (ciclo absoluto). */
+  sync(now) {
+    let elapsed = now - this.lastCycle;
+    if (elapsed <= 0) return;
+    this.lastCycle = now;
+    for (let i = 0; i < 4; i++) {
+      const t = this.t[i];
+      if (!t.enabled || t.cascade) continue;
+      t.frac += elapsed;
+      const ticks = t.frac >> t.shift;
+      if (!ticks) continue;
+      t.frac -= ticks << t.shift;
+      this.#add(i, ticks);
+    }
+  }
+
+  #add(i, ticks) {
+    const t = this.t[i];
+    let c = t.counter + ticks;
+    let overflows = 0;
+    while (c >= 0x10000) { c = c - 0x10000 + t.reload; overflows++; }
+    t.counter = c;
+    if (!overflows) return;
+    for (let k = 0; k < overflows; k++) {
+      if (t.control & 0x40) this.irq.request(IRQ.TIMER0 << i);
+      this.onOverflow?.(i);
+    }
+    if (i < 3) { const n = this.t[i + 1]; if (n.enabled && n.cascade) this.#add(i + 1, overflows); }
+  }
+
+  /** Ciclos hasta el próximo desbordamiento de cualquier timer no en cascada (Infinity si ninguno). */
+  cyclesUntilOverflow() {
+    let best = Infinity;
+    for (const t of this.t) {
+      if (!t.enabled || t.cascade) continue;
+      const remaining = ((0x10000 - t.counter) << t.shift) - t.frac;
+      if (remaining < best) best = remaining;
+    }
+    return best;
+  }
+
+  read(i, high, now) {
+    this.sync(now);
+    return high ? this.t[i].control : this.t[i].counter & 0xffff;
+  }
+
+  write(i, high, value, now) {
+    this.sync(now);
+    const t = this.t[i];
+    if (!high) { t.reload = value & 0xffff; return; }
+    const wasEnabled = t.enabled;
+    t.control = value & 0xc7;
+    t.enabled = !!(value & 0x80);
+    t.cascade = i > 0 && !!(value & 0x04);
+    t.shift = PRESCALE[value & 3];
+    if (t.enabled && !wasEnabled) { t.counter = t.reload; t.frac = 0; }
+  }
+}
+
+return { Timers };
+})();
+// ---- src/hardware/dma.js
+__mod["src/hardware/dma.js"] = (() => {
+/**
+ * DMA 0–3 (GBATEK, "GBA DMA Transfers").
+ * DMAxSAD/DAD (direcciones), DMAxCNT_L (unidades; 0 = máximo), DMAxCNT_H (control):
+ *   bits 5–6 destino (inc, dec, fijo, inc+recarga), 7–8 origen (inc, dec, fijo),
+ *   bit 9 repetir, bit 10 32 bits, bits 12–13 momento (inmediato, VBlank, HBlank, especial),
+ *   bit 14 IRQ al terminar, bit 15 habilitado.
+ * Especial: DMA1/DMA2 = FIFO de sonido (4 palabras de 32 bits, destino fijo), DMA3 = captura de vídeo.
+ * Las transferencias se ejecutan de forma instantánea; los ciclos consumidos se devuelven para
+ * cargarlos al contador global (la CPU está parada durante el DMA en el hardware real).
+ */
+const { IRQ } = __mod["src/hardware/interrupts.js"];
+const SRC_MASK = [0x07ffffff, 0x0fffffff, 0x0fffffff, 0x0fffffff];
+const DST_MASK = [0x07ffffff, 0x07ffffff, 0x07ffffff, 0x0fffffff];
+const COUNT_MAX = [0x4000, 0x4000, 0x4000, 0x10000];
+
+const DMA_TIMING = Object.freeze({ IMMEDIATE: 0, VBLANK: 1, HBLANK: 2, SPECIAL: 3 });
+
+class DMA {
+  constructor(bus, irq) {
+    this.bus = bus; this.irq = irq;
+    this.ch = Array.from({ length: 4 }, () => ({ sad: 0, dad: 0, cnt: 0, control: 0, src: 0, dst: 0, count: 0, active: false }));
+    this.cyclesUsed = 0;
+    this.log = null; // función opcional de depuración
+  }
+
+  writeControl(i, value) {
+    const c = this.ch[i];
+    const was = c.control & 0x8000;
+    c.control = value & (i === 3 ? 0xffe0 : 0xf7e0);
+    if (!(value & 0x8000)) { c.active = false; return; }
+    if (!was) {
+      // Flanco de habilitación: se latchean las direcciones y el contador internos
+      c.src = c.sad & SRC_MASK[i]; c.dst = c.dad & DST_MASK[i];
+      c.count = (c.cnt & (COUNT_MAX[i] - 1)) || COUNT_MAX[i];
+      c.active = true;
+      if (((value >> 12) & 3) === DMA_TIMING.IMMEDIATE) this.run(i);
+    }
+  }
+
+  /** Dispara las DMA programadas para un momento (VBlank/HBlank). */
+  trigger(timing) {
+    for (let i = 0; i < 4; i++) { const c = this.ch[i]; if (c.active && ((c.control >> 12) & 3) === timing) this.run(i); }
+  }
+
+  /** Petición del FIFO de sonido A (fifo = 0) o B (fifo = 1). */
+  triggerFifo(fifoAddr) {
+    for (const i of [1, 2]) {
+      const c = this.ch[i];
+      if (c.active && ((c.control >> 12) & 3) === DMA_TIMING.SPECIAL && (c.dad & 0x0fffffff) === fifoAddr) this.run(i, true);
+    }
+  }
+
+  run(i, fifo = false) {
+    const c = this.ch[i], bus = this.bus;
+    const word = fifo || !!(c.control & 0x400);
+    const size = word ? 4 : 2;
+    const dstMode = fifo ? 2 : (c.control >> 5) & 3;
+    const srcMode = (c.control >> 7) & 3;
+    const count = fifo ? 4 : c.count;
+    const dStep = dstMode === 0 || dstMode === 3 ? size : dstMode === 1 ? -size : 0;
+    const sStep = srcMode === 0 ? size : srcMode === 1 ? -size : 0;
+    let src = c.src, dst = c.dst;
+    this.log?.(i, src, dst, count, word);
+    if (word) { src &= ~3; dst &= ~3; for (let k = 0; k < count; k++) { bus.write32(dst, bus.read32(src)); src += sStep; dst += dStep; } }
+    else { src &= ~1; dst &= ~1; for (let k = 0; k < count; k++) { bus.write16(dst, bus.read16(src)); src += sStep; dst += dStep; } }
+    this.cyclesUsed += 2 + count * (word ? 2 : 1) * 2;
+    c.src = src >>> 0;
+    c.dst = (dstMode === 3 ? c.dad & DST_MASK[i] : dst) >>> 0;
+    if (c.control & 0x4000) this.irq.request(IRQ.DMA0 << i);
+    const timing = (c.control >> 12) & 3;
+    if ((c.control & 0x200) && timing !== DMA_TIMING.IMMEDIATE) {
+      if (!fifo) c.count = (c.cnt & (COUNT_MAX[i] - 1)) || COUNT_MAX[i];
+    } else {
+      c.active = false; c.control &= 0x7fff; // fin: se borra el bit de habilitación
+    }
+  }
+}
+
+return { DMA_TIMING, DMA };
+})();
+// ---- src/hardware/keypad.js
+__mod["src/hardware/keypad.js"] = (() => {
+/**
+ * Teclado (GBATEK, "GBA Keypad Input"). KEYINPUT 0x04000130: bit a 0 = pulsado.
+ * Orden de bits: A, B, Select, Start, Derecha, Izquierda, Arriba, Abajo, R, L.
+ * KEYCNT 0x04000132: IRQ de teclado (bit 14), condición OR/AND (bit 15).
+ */
+const { IRQ } = __mod["src/hardware/interrupts.js"];
+const KEYS = Object.freeze({ A: 0, B: 1, SELECT: 2, START: 3, RIGHT: 4, LEFT: 5, UP: 6, DOWN: 7, R: 8, L: 9 });
+
+class Keypad {
+  constructor(irq) { this.irq = irq; this.state = 0x3ff; this.keycnt = 0; }
+  set(key, pressed) {
+    if (pressed) this.state &= ~(1 << key); else this.state |= 1 << key;
+    // La cruceta no puede tener direcciones opuestas a la vez en el hardware real
+    this.check();
+  }
+  get keyinput() { return this.state & 0x3ff; }
+  check() {
+    if (!(this.keycnt & 0x4000)) return;
+    const sel = this.keycnt & 0x3ff, pressed = ~this.state & 0x3ff;
+    const hit = this.keycnt & 0x8000 ? (pressed & sel) === sel && sel !== 0 : (pressed & sel) !== 0;
+    if (hit) this.irq.request(IRQ.KEYPAD);
+  }
+}
+
+return { KEYS, Keypad };
+})();
+// ---- src/hardware/serial.js
+__mod["src/hardware/serial.js"] = (() => {
+/**
+ * Puerto serie sin nada conectado (GBATEK, "GBA Communication Ports").
+ * - RCNT (0x134) en modo de propósito general (bit 15 = 1, bit 14 = 0): los pines configurados como
+ *   entrada (bits de dirección 4–7 a 0) se leen en alto, porque las líneas tienen resistencias de
+ *   pull-up y no hay nada conectado; los de salida devuelven lo escrito.
+ * - SIOCNT (0x128): una transferencia con reloj interno (bit 0 = 1) termina tras su duración y
+ *   recibe unos (SI en alto); con reloj externo no termina nunca, porque no hay otro aparato.
+ *   En modo multijugador, SI en alto indica "no hay maestro": se marca error y los datos quedan a 0xFFFF.
+ */
+const { IRQ } = __mod["src/hardware/interrupts.js"];
+class Serial {
+  constructor(irq, io) { this.irq = irq; this.io = io; this.rcnt = 0; this.siocnt = 0; this.pending = 0; this.transfers = 0; }
+
+  readRcnt() {
+    if ((this.rcnt & 0xc000) === 0x8000) {
+      const dir = (this.rcnt >> 4) & 15;
+      const pins = (this.rcnt & dir) | (~dir & 15); // entradas en alto
+      return (this.rcnt & 0xfff0) | (pins & 15);
+    }
+    return this.rcnt;
+  }
+  writeRcnt(v) { this.rcnt = v & 0xc1ff; }
+
+  readSiocnt() {
+    const mode = this.#mode();
+    let v = this.siocnt;
+    if (mode === 'multi') v = (v & ~0x3c) | (1 << 2) | (1 << 3); // SI alto (sin maestro) y "no preparado"
+    else if (mode === 'normal') v |= 1 << 2; // SI alto
+    return v;
+  }
+  writeSiocnt(v, now) {
+    this.siocnt = (this.siocnt & 0x0080) | (v & 0x7f7f) | (v & 0x0080);
+    if (!(v & 0x80)) return;
+    const mode = this.#mode();
+    if (mode === 'normal' && (v & 1)) {
+      // reloj interno: 8 o 32 bits a 256 kHz (bit 1 = 0) o 2 MHz
+      const bits = v & 0x1000 ? 32 : 8;
+      this.pending = now + bits * (v & 2 ? 8 : 64);
+    } else if (mode === 'multi') {
+      this.pending = now + 1000;
+    }
+  }
+  #mode() {
+    if (this.rcnt & 0x8000) return 'gp';
+    const m = (this.siocnt >> 12) & 3;
+    return m === 2 ? 'multi' : m === 3 ? 'uart' : 'normal';
+  }
+  /** Llamar periódicamente con el ciclo actual: completa la transferencia en curso. */
+  update(now) {
+    if (!this.pending || now < this.pending) return;
+    this.pending = 0;
+    const regs = this.io.regs;
+    if (this.#mode() === 'multi') { for (let k = 0; k < 4; k++) regs[(0x120 >> 1) + k] = 0xffff; this.siocnt |= 0x40; } // bit 6: error
+    else { regs[0x120 >> 1] = 0xffff; regs[0x122 >> 1] = 0xffff; regs[0x12a >> 1] = 0xffff; }
+    this.siocnt &= ~0x80;
+    this.transfers++;
+    if (this.siocnt & 0x4000) this.irq.request(IRQ.SERIAL);
+  }
+}
+
+return { Serial };
+})();
+// ---- src/video/background.js
+__mod["src/video/background.js"] = (() => {
+/**
+ * Fondos (GBATEK, "LCD VRAM BG Screen Data Format" y "LCD I/O BG Control").
+ * Cada función rellena una línea de 240 píxeles en `out` (Int32Array): color BGR555 o −1 (transparente).
+ */
+const TEXT_W = [256, 512, 256, 512], TEXT_H = [256, 256, 512, 512];
+
+/** Fondo de texto (modos 0 y 1). */
+function renderTextLine(ppu, bg, y, out) {
+  const regs = ppu.io.regs, vram = ppu.bus.vram, v16 = ppu.bus.v16.vram, pal = ppu.bus.v16.pal;
+  const cnt = regs[4 + bg];
+  const charBase = ((cnt >> 2) & 3) * 0x4000;
+  const screenBase = ((cnt >> 8) & 31) * 0x800;
+  const c256 = (cnt & 0x80) !== 0, size = cnt >> 14;
+  const w = TEXT_W[size], h = TEXT_H[size];
+  const hofs = regs[8 + bg * 2] & 0x1ff, vofs = regs[9 + bg * 2] & 0x1ff;
+  let line = y;
+  const mosaic = (cnt & 0x40) !== 0;
+  const mosH = mosaic ? (regs[0x26] & 15) + 1 : 1;
+  if (mosaic) { const mv = ((regs[0x26] >> 4) & 15) + 1; line -= line % mv; }
+  const yy = (line + vofs) & (h - 1);
+  const tileY = yy >> 3, sbRow = (tileY >> 5) * (w >> 8);
+  for (let x = 0; x < 240; x++) {
+    const sx = mosH > 1 ? x - (x % mosH) : x;
+    const xx = (sx + hofs) & (w - 1);
+    const tileX = xx >> 3;
+    const entry = v16[(screenBase + (sbRow + (tileX >> 5)) * 0x800 + ((tileY & 31) * 32 + (tileX & 31)) * 2) >> 1];
+    const tile = entry & 0x3ff;
+    const px = entry & 0x400 ? 7 - (xx & 7) : xx & 7;
+    const py = entry & 0x800 ? 7 - (yy & 7) : yy & 7;
+    if (c256) {
+      const a = charBase + tile * 64 + py * 8 + px;
+      if (a >= 0x10000) { out[x] = -1; continue; }
+      const idx = vram[a];
+      out[x] = idx ? pal[idx] & 0x7fff : -1;
+    } else {
+      const a = charBase + tile * 32 + py * 4 + (px >> 1);
+      if (a >= 0x10000) { out[x] = -1; continue; }
+      const idx = (vram[a] >> ((px & 1) * 4)) & 15;
+      out[x] = idx ? pal[(entry >> 12) * 16 + idx] & 0x7fff : -1;
+    }
+  }
+}
+
+/** Fondo afín (modos 1 y 2): mapa de bytes, tiles de 8 bpp, rotación y escalado. */
+function renderAffineLine(ppu, bg, out) {
+  const regs = ppu.io.regs, vram = ppu.bus.vram, pal = ppu.bus.v16.pal;
+  const cnt = regs[4 + bg];
+  const charBase = ((cnt >> 2) & 3) * 0x4000;
+  const screenBase = ((cnt >> 8) & 31) * 0x800;
+  const size = 128 << (cnt >> 14), tiles = size >> 3, wrap = (cnt & 0x2000) !== 0;
+  const k = bg === 2 ? 0x10 : 0x18;
+  const pa = (regs[k] << 16) >> 16, pc = (regs[k + 2] << 16) >> 16;
+  let tx = ppu.refX[bg - 2], ty = ppu.refY[bg - 2];
+  for (let x = 0; x < 240; x++, tx += pa, ty += pc) {
+    let px = tx >> 8, py = ty >> 8;
+    if (wrap) { px &= size - 1; py &= size - 1; }
+    else if (px < 0 || py < 0 || px >= size || py >= size) { out[x] = -1; continue; }
+    const tile = vram[screenBase + (py >> 3) * tiles + (px >> 3)];
+    const idx = vram[charBase + tile * 64 + (py & 7) * 8 + (px & 7)];
+    out[x] = idx ? pal[idx] & 0x7fff : -1;
+  }
+}
+
+/** Modos de mapa de bits 3, 4 y 5 (BG2, con transformación afín). */
+function renderBitmapLine(ppu, mode, out) {
+  const regs = ppu.io.regs, vram = ppu.bus.vram, v16 = ppu.bus.v16.vram, pal = ppu.bus.v16.pal;
+  const pa = (regs[0x10] << 16) >> 16, pc = (regs[0x12] << 16) >> 16; // BG2PA (0x20) y BG2PC (0x24)
+  const frame = (regs[0] & 0x10) && mode !== 3 ? 0xa000 : 0;
+  const w = mode === 5 ? 160 : 240, h = mode === 5 ? 128 : 160;
+  let tx = ppu.refX[0], ty = ppu.refY[0];
+  for (let x = 0; x < 240; x++, tx += pa, ty += pc) {
+    const px = tx >> 8, py = ty >> 8;
+    if (px < 0 || py < 0 || px >= w || py >= h) { out[x] = -1; continue; }
+    if (mode === 4) { const idx = vram[frame + py * 240 + px]; out[x] = idx ? pal[idx] & 0x7fff : -1; }
+    else out[x] = v16[(frame + (py * w + px) * 2) >> 1] & 0x7fff;
+  }
+}
+
+return { renderTextLine, renderAffineLine, renderBitmapLine };
+})();
+// ---- src/video/sprites.js
+__mod["src/video/sprites.js"] = (() => {
+/**
+ * Sprites (OBJ) por línea (GBATEK, "LCD OBJ - OAM Attributes").
+ * Rellena: color (−1 = vacío), prioridad, semitransparencia y máscara de ventana OBJ.
+ * Entre sprites, gana la menor prioridad; a igual prioridad, el de menor índice en la OAM.
+ */
+const SIZES = [
+  [[8, 8], [16, 16], [32, 32], [64, 64]],   // cuadrado
+  [[16, 8], [32, 8], [32, 16], [64, 32]],   // horizontal
+  [[8, 16], [8, 32], [16, 32], [32, 64]],   // vertical
+];
+
+function renderSpriteLine(ppu, y, color, prio, semi, win) {
+  color.fill(-1); prio.fill(4); semi.fill(0); win.fill(0);
+  const regs = ppu.io.regs, oam = ppu.bus.v16.oam, vram = ppu.bus.vram, pal = ppu.bus.v16.pal;
+  const dispcnt = regs[0];
+  const map1d = (dispcnt & 0x40) !== 0, bitmapMode = (dispcnt & 7) >= 3;
+  const mosaicH = (regs[0x26] >> 8 & 15) + 1, mosaicV = (regs[0x26] >> 12 & 15) + 1;
+  for (let i = 0; i < 128; i++) {
+    const a0 = oam[i * 4], a1 = oam[i * 4 + 1], a2 = oam[i * 4 + 2];
+    const affine = (a0 & 0x100) !== 0;
+    if (!affine && (a0 & 0x200)) continue; // deshabilitado
+    const mode = (a0 >> 10) & 3;
+    if (mode === 3) continue;
+    const shape = a0 >> 14;
+    if (shape === 3) continue;
+    const [w, h] = SIZES[shape][a1 >> 14];
+    const dbl = affine && (a0 & 0x200) !== 0;
+    const bw = dbl ? w * 2 : w, bh = dbl ? h * 2 : h;
+    let sy = a0 & 0xff;
+    let ly = (y - sy) & 0xff;
+    if (ly >= bh) continue;
+    if (a0 & 0x1000) ly -= ly % mosaicV;
+    let sx = a1 & 0x1ff; if (sx >= 240) sx -= 512;
+    const tileBase = a2 & 0x3ff;
+    if (bitmapMode && tileBase < 512) continue;
+    const p = (a2 >> 10) & 3, bank = a2 >> 12, c256 = (a0 & 0x2000) !== 0;
+    const tilesPerRow = map1d ? (w >> 3) * (c256 ? 2 : 1) : 32;
+    let pa = 0x100, pb = 0, pc = 0, pd = 0x100;
+    if (affine) {
+      const g = ((a1 >> 9) & 31) * 16;
+      pa = (oam[g + 3] << 16) >> 16; pb = (oam[g + 7] << 16) >> 16; pc = (oam[g + 11] << 16) >> 16; pd = (oam[g + 15] << 16) >> 16;
+    }
+    const hflip = !affine && (a1 & 0x1000) !== 0, vflip = !affine && (a1 & 0x2000) !== 0;
+    for (let lx = 0; lx < bw; lx++) {
+      const x = sx + lx;
+      if (x < 0 || x >= 240) continue;
+      let tx, ty;
+      if (affine) {
+        const dx = lx - (bw >> 1), dy = ly - (bh >> 1);
+        tx = ((pa * dx + pb * dy) >> 8) + (w >> 1);
+        ty = ((pc * dx + pd * dy) >> 8) + (h >> 1);
+        if (tx < 0 || ty < 0 || tx >= w || ty >= h) continue;
+      } else {
+        tx = hflip ? w - 1 - lx : lx;
+        ty = vflip ? h - 1 - ly : ly;
+      }
+      if ((a0 & 0x1000) && mosaicH > 1) tx -= tx % mosaicH;
+      let idx;
+      if (c256) {
+        const tile = (tileBase & (map1d ? 0x3ff : 0x3fe)) + (ty >> 3) * tilesPerRow + (tx >> 3) * 2;
+        idx = vram[0x10000 + (tile & 0x3ff) * 32 + (ty & 7) * 8 + (tx & 7)];
+      } else {
+        const tile = tileBase + (ty >> 3) * tilesPerRow + (tx >> 3);
+        idx = (vram[0x10000 + (tile & 0x3ff) * 32 + (ty & 7) * 4 + ((tx & 7) >> 1)] >> ((tx & 1) * 4)) & 15;
+      }
+      if (!idx) continue;
+      if (mode === 2) { win[x] = 1; continue; }
+      if (p < prio[x]) {
+        color[x] = pal[0x100 + (c256 ? idx : bank * 16 + idx)] & 0x7fff;
+        prio[x] = p; semi[x] = mode === 1 ? 1 : 0;
+      }
+    }
+  }
+}
+
+return { renderSpriteLine };
+})();
+// ---- src/video/palette.js
+__mod["src/video/palette.js"] = (() => {
+/**
+ * Conversión BGR555 → RGBA de 32 bits (formato de ImageData en little-endian: 0xAABBGGRR).
+ * Escalado 5→8 bits replicando los bits altos. Tabla de 32768 entradas precalculada.
+ */
+const COLOR_LUT = new Uint32Array(0x8000);
+for (let c = 0; c < 0x8000; c++) {
+  const r = c & 31, g = (c >> 5) & 31, b = (c >> 10) & 31;
+  COLOR_LUT[c] = (0xff000000 | (((b << 3) | (b >> 2)) << 16) | (((g << 3) | (g >> 2)) << 8) | ((r << 3) | (r >> 2))) >>> 0;
+}
+
+return { COLOR_LUT };
+})();
+// ---- src/video/renderer.js
+__mod["src/video/renderer.js"] = (() => {
+/**
+ * Compositor de línea: ventanas (WIN0, WIN1, OBJ, exterior), prioridades y efectos de color
+ * (GBATEK, "LCD I/O Window Feature" y "LCD I/O Color Special Effects").
+ */
+const { COLOR_LUT } = __mod["src/video/palette.js"];
+const BD = 5; // backdrop
+
+function blendAlpha(a, b, eva, evb) {
+  const r = Math.min(31, ((a & 31) * eva + (b & 31) * evb) >> 4);
+  const g = Math.min(31, (((a >> 5) & 31) * eva + ((b >> 5) & 31) * evb) >> 4);
+  const bl = Math.min(31, (((a >> 10) & 31) * eva + ((b >> 10) & 31) * evb) >> 4);
+  return r | (g << 5) | (bl << 10);
+}
+function brighten(c, ev) {
+  const r = c & 31, g = (c >> 5) & 31, b = (c >> 10) & 31;
+  return (r + (((31 - r) * ev) >> 4)) | ((g + (((31 - g) * ev) >> 4)) << 5) | ((b + (((31 - b) * ev) >> 4)) << 10);
+}
+function darken(c, ev) {
+  const r = c & 31, g = (c >> 5) & 31, b = (c >> 10) & 31;
+  return (r - ((r * ev) >> 4)) | ((g - ((g * ev) >> 4)) << 5) | ((b - ((b * ev) >> 4)) << 10);
+}
+
+/**
+ * @param {object} ppu
+ * @param {number} y línea
+ * @param {Int32Array[]} bgLines líneas de BG0–3 (o null si el BG no existe en el modo actual)
+ * @param {object} obj { color, prio, semi, win }
+ * @param {Uint32Array} fb framebuffer RGBA
+ */
+function composeLine(ppu, y, bgLines, bgEnabled, obj, fb) {
+  const regs = ppu.io.regs;
+  const dispcnt = regs[0];
+  const backdrop = ppu.bus.v16.pal[0] & 0x7fff;
+  const bldcnt = regs[0x28], bldalpha = regs[0x29], bldy = regs[0x2a];
+  const effect = (bldcnt >> 6) & 3, t1 = bldcnt & 0x3f, t2 = (bldcnt >> 8) & 0x3f;
+  const eva = Math.min(16, bldalpha & 31), evb = Math.min(16, (bldalpha >> 8) & 31), evy = Math.min(16, bldy & 31);
+  const objOn = (dispcnt & 0x1000) !== 0;
+  const winAny = (dispcnt & 0xe000) !== 0;
+  const winin = regs[0x24], winout = regs[0x25];
+  // Ventanas: límites de la línea
+  const w0 = (dispcnt & 0x2000) && inRangeV(regs[0x22], y);
+  const w1 = (dispcnt & 0x4000) && inRangeV(regs[0x23], y);
+  const wObj = (dispcnt & 0x8000) !== 0;
+  const prioBg = [regs[4] & 3, regs[5] & 3, regs[6] & 3, regs[7] & 3];
+  const base = y * 240;
+  for (let x = 0; x < 240; x++) {
+    let ctl = 0x3f;
+    if (winAny) {
+      if (w0 && inRangeH(regs[0x20], x)) ctl = winin & 0x3f;
+      else if (w1 && inRangeH(regs[0x21], x)) ctl = (winin >> 8) & 0x3f;
+      else if (wObj && objOn && obj.win[x]) ctl = (winout >> 8) & 0x3f;
+      else ctl = winout & 0x3f;
+    }
+    // Capas visibles de arriba abajo: por prioridad 0..3; a igual prioridad, OBJ primero y luego BG0..3
+    let top = BD, topC = backdrop, sec = BD, secC = backdrop, found = 0;
+    const objVisible = objOn && (ctl & 0x10) && obj.color[x] >= 0;
+    for (let p = 0; p < 4 && found < 2; p++) {
+      if (objVisible && obj.prio[x] === p) {
+        if (found === 0) { top = 4; topC = obj.color[x]; } else { sec = 4; secC = obj.color[x]; }
+        found++;
+        if (found === 2) break;
+      }
+      for (let b = 0; b < 4; b++) {
+        if (!bgEnabled[b] || prioBg[b] !== p || !(ctl & (1 << b))) continue;
+        const c = bgLines[b][x];
+        if (c < 0) continue;
+        if (found === 0) { top = b; topC = c; } else { sec = b; secC = c; }
+        found++;
+        if (found === 2) break;
+      }
+    }
+    let out = topC;
+    const semiObj = top === 4 && obj.semi[x];
+    if (semiObj && (t2 & (1 << sec))) out = blendAlpha(topC, secC, eva, evb);
+    else if ((ctl & 0x20) && (t1 & (1 << top)) && effect) {
+      if (effect === 1) { if (t2 & (1 << sec)) out = blendAlpha(topC, secC, eva, evb); }
+      else if (effect === 2) out = brighten(topC, evy);
+      else out = darken(topC, evy);
+    }
+    fb[base + x] = COLOR_LUT[out];
+  }
+}
+
+function inRangeH(reg, x) {
+  const x1 = reg >> 8, x2 = reg & 0xff;
+  return x1 <= x2 ? x >= x1 && x < x2 : x >= x1 || x < x2;
+}
+function inRangeV(reg, y) {
+  const y1 = reg >> 8, y2 = reg & 0xff;
+  return y1 <= y2 ? y >= y1 && y < y2 : y >= y1 || y < y2;
+}
+
+return { composeLine };
+})();
+// ---- src/video/ppu.js
+__mod["src/video/ppu.js"] = (() => {
+/**
+ * PPU: temporización de líneas y registros de estado, y renderizado por scanline a 240×160.
+ * Línea = 1232 ciclos (960 visibles + 272 de HBlank); 228 líneas (160 visibles + 68 de VBlank).
+ * DISPSTAT (0x04000004): bit 0 VBlank, 1 HBlank, 2 coincidencia VCount, 3–5 IRQ de cada uno,
+ * bits 8–15 línea de comparación. Las referencias afines internas (BG2X/Y, BG3X/Y) se recargan
+ * al escribir los registros y al comienzo de cada fotograma, y avanzan PB/PD en cada línea.
+ */
+const { renderTextLine, renderAffineLine, renderBitmapLine } = __mod["src/video/background.js"];
+const { renderSpriteLine } = __mod["src/video/sprites.js"];
+const { composeLine } = __mod["src/video/renderer.js"];
+const { COLOR_LUT } = __mod["src/video/palette.js"];
+const SCREEN_W = 240, SCREEN_H = 160;
+
+class PPU {
+  constructor(bus, io, irq) {
+    this.bus = bus; this.io = io; this.irq = irq;
+    this.framebuffer = new Uint32Array(SCREEN_W * SCREEN_H);
+    this.dispstat = 0; this.vcount = 0;
+    this.refX = new Int32Array(2); this.refY = new Int32Array(2);
+    this.bgLines = [0, 1, 2, 3].map(() => new Int32Array(240));
+    this.obj = { color: new Int32Array(240), prio: new Uint8Array(240), semi: new Uint8Array(240), win: new Uint8Array(240) };
+    this.frame = 0;
+    this.layerMask = 0x1f; // depuración: permite ocultar capas (bits BG0–3, OBJ)
+  }
+
+  writeDispstat(v) { this.dispstat = (this.dispstat & 0x7) | (v & 0xff38); }
+
+  /** Escritura en BG2X/Y o BG3X/Y: recarga la referencia interna (28 bits con signo). */
+  affineWrite(off) {
+    const r = this.io.regs;
+    const read28 = (o) => (((r[o >> 1] | (r[(o >> 1) + 1] << 16)) << 4) >> 4);
+    if (off >= 0x28 && off < 0x2c) this.refX[0] = read28(0x28);
+    else if (off >= 0x2c && off < 0x30) this.refY[0] = read28(0x2c);
+    else if (off >= 0x38 && off < 0x3c) this.refX[1] = read28(0x38);
+    else if (off >= 0x3c && off < 0x40) this.refY[1] = read28(0x3c);
+  }
+  #reloadAffine() { for (const o of [0x28, 0x2c, 0x38, 0x3c]) this.affineWrite(o); }
+
+  /** Inicio de la línea `y`: VCOUNT, coincidencia, entrada/salida de VBlank. Devuelve true al entrar en VBlank. */
+  startLine(y) {
+    this.vcount = y;
+    const match = ((this.dispstat >> 8) & 0xff) === y;
+    if (match) { this.dispstat |= 4; if (this.dispstat & 0x20) this.irq.request(4); } else this.dispstat &= ~4;
+    if (y === 160) {
+      this.dispstat |= 1;
+      if (this.dispstat & 0x08) this.irq.request(1);
+      this.frame++;
+      return true;
+    }
+    if (y === 227) this.dispstat &= ~1;
+    if (y === 0) this.#reloadAffine();
+    return false;
+  }
+  startHblank() { this.dispstat |= 2; if (this.dispstat & 0x10) this.irq.request(2); }
+  endHblank() { this.dispstat &= ~2; }
+
+  renderLine(y) {
+    const regs = this.io.regs, dispcnt = regs[0];
+    const fb = this.framebuffer;
+    if (dispcnt & 0x80) { fb.fill(0xffffffff, y * 240, y * 240 + 240); this.#advanceAffine(); return; } // forced blank: blanco
+    const mode = dispcnt & 7;
+    const en = [false, false, false, false];
+    const mask = this.layerMask;
+    const on = (b) => (dispcnt & (0x100 << b)) !== 0 && (mask & (1 << b)) !== 0;
+    switch (mode) {
+      case 0: for (let b = 0; b < 4; b++) if (on(b)) { renderTextLine(this, b, y, this.bgLines[b]); en[b] = true; } break;
+      case 1:
+        for (let b = 0; b < 2; b++) if (on(b)) { renderTextLine(this, b, y, this.bgLines[b]); en[b] = true; }
+        if (on(2)) { renderAffineLine(this, 2, this.bgLines[2]); en[2] = true; }
+        break;
+      case 2: for (let b = 2; b < 4; b++) if (on(b)) { renderAffineLine(this, b, this.bgLines[b]); en[b] = true; } break;
+      case 3: case 4: case 5: if (on(2)) { renderBitmapLine(this, mode, this.bgLines[2]); en[2] = true; } break;
+      default: break; // modos 6 y 7 no existen: solo backdrop
+    }
+    if ((dispcnt & 0x1000) || (dispcnt & 0x8000)) {
+      renderSpriteLine(this, y, this.obj.color, this.obj.prio, this.obj.semi, this.obj.win);
+      if (!(mask & 0x10)) this.obj.color.fill(-1);
+    } else this.obj.color.fill(-1);
+    composeLine(this, y, this.bgLines, en, this.obj, fb);
+    this.#advanceAffine();
+  }
+
+  #advanceAffine() {
+    const r = this.io.regs;
+    this.refX[0] += (r[0x11] << 16) >> 16; this.refY[0] += (r[0x13] << 16) >> 16; // BG2PB, BG2PD
+    this.refX[1] += (r[0x19] << 16) >> 16; this.refY[1] += (r[0x1b] << 16) >> 16; // BG3PB, BG3PD
+  }
+
+  /** Color de fondo (para depuración). */
+  backdropRGBA() { return COLOR_LUT[this.bus.v16.pal[0] & 0x7fff]; }
+}
+
+return { SCREEN_W, PPU, SCREEN_H };
+})();
+// ---- src/audio/apu.js
+__mod["src/audio/apu.js"] = (() => {
+/**
+ * APU (GBATEK, "GBA Sound Controller").
+ * Fase actual: registros y FIFO de Direct Sound A/B con su mecánica completa (timers + DMA1/2),
+ * porque el juego depende de ella para avanzar. La síntesis (PSG 1–4, mezcla, Web Audio) está en
+ * sound.js y se conecta mediante `sink`.
+ */
+class APU {
+  constructor(emu) {
+    this.emu = emu;
+    this.regs = new Uint16Array(0x30); // 0x060–0x0BF
+    this.fifo = [new Int8Array(32), new Int8Array(32)];
+    this.fifoR = [0, 0]; this.fifoW = [0, 0]; this.fifoN = [0, 0];
+    this.current = [0, 0]; // muestra actual de cada canal Direct Sound
+    this.sink = null;      // sintetizador (sound.js) o null
+  }
+  get soundcnth() { return this.regs[(0x82 - 0x60) >> 1]; }
+  get soundcntx() { return this.regs[(0x84 - 0x60) >> 1]; }
+
+  read16(off) {
+    if (off === 0x84) return (this.soundcntx & 0x80) | (this.sink ? this.sink.activeMask() : 0);
+    if (off >= 0xa0) return 0; // FIFO: solo escritura
+    return this.regs[(off - 0x60) >> 1];
+  }
+  write16(off, v) {
+    const i = (off - 0x60) >> 1;
+    if (off === 0x82) { // SOUNDCNT_H: bits 11 y 15 reinician los FIFO
+      if (v & 0x0800) this.#resetFifo(0);
+      if (v & 0x8000) this.#resetFifo(1);
+      v &= 0x770f;
+    }
+    if (off === 0x84 && !(v & 0x80)) { // apagar el sonido borra los registros PSG
+      for (let k = 0; k < (0x84 - 0x60) >> 1; k++) if (k !== 1) this.regs[k] = 0;
+    }
+    this.regs[i] = v;
+    this.sink?.write16(off, v);
+  }
+  #resetFifo(k) { this.fifoR[k] = this.fifoW[k] = this.fifoN[k] = 0; }
+  fifoWrite8(k, v) {
+    if (this.fifoN[k] >= 32) return;
+    this.fifo[k][this.fifoW[k]] = v; this.fifoW[k] = (this.fifoW[k] + 1) & 31; this.fifoN[k]++;
+  }
+  fifoWrite16(k, v) { this.fifoWrite8(k, v & 0xff); this.fifoWrite8(k, v >> 8); }
+  fifoWrite32(k, v) { for (let s = 0; s < 32; s += 8) this.fifoWrite8(k, (v >>> s) & 0xff); }
+
+  /** Desbordamiento del timer t: cada FIFO asociado a ese timer consume una muestra. */
+  timerOverflow(t) {
+    const h = this.soundcnth;
+    for (let k = 0; k < 2; k++) {
+      const timer = (h >> (10 + k * 4)) & 1;
+      if (timer !== t) continue;
+      if (this.fifoN[k] > 0) {
+        this.current[k] = this.fifo[k][this.fifoR[k]];
+        this.fifoR[k] = (this.fifoR[k] + 1) & 31; this.fifoN[k]--;
+      }
+      this.sink?.directSample(k, this.current[k]);
+      if (this.fifoN[k] <= 16) this.emu.dma.triggerFifo(k === 0 ? 0x040000a0 : 0x040000a4);
+    }
+  }
+}
+
+return { APU };
+})();
+// ---- src/audio/sound.js
+__mod["src/audio/sound.js"] = (() => {
+/**
+ * Síntesis de sonido del GBA (GBATEK, "GBA Sound Channel 1–4", "DMA Sound A/B", "Sound Control").
+ * Genera muestras estéreo a SAMPLE_RATE a partir del tiempo de CPU: cada 16 777 216 / SAMPLE_RATE ciclos
+ * se toma una muestra del estado de los 4 canales PSG y de los 2 canales Direct Sound.
+ *
+ *  - Canales 1 y 2: onda cuadrada (ciclo de trabajo 12,5/25/50/75 %), envolvente, longitud; el 1 con barrido.
+ *    Frecuencia = 131072 / (2048 − x) Hz.
+ *  - Canal 3: onda programable de 32 muestras de 4 bits (2 bancos), volumen 0/25/50/75/100 %.
+ *    Frecuencia de muestra = 2097152 / (2048 − x) Hz.
+ *  - Canal 4: ruido con LFSR de 15 o 7 bits; frecuencia = 524288 / r / 2^(s+1) Hz (r = 0 → 0,5).
+ *  - Secuenciador a 512 Hz: longitud a 256 Hz, barrido a 128 Hz, envolvente a 64 Hz.
+ *  - Direct Sound A/B: la muestra de 8 bits con signo vigente (la mantiene el FIFO, ver apu.js).
+ * La mezcla final es una aproximación normalizada en coma flotante del mezclador analógico.
+ */
+const SAMPLE_RATE = 32768;
+const CYCLES_PER_SAMPLE = 16777216 / SAMPLE_RATE; // 512
+const DUTY = [0.125, 0.25, 0.5, 0.75];
+
+function makeChannel() {
+  return { on: false, freq: 0, phase: 0, duty: 2, length: 0, lengthOn: false, vol: 0, envDir: 0, envStep: 0, envTimer: 0,
+    sweepTime: 0, sweepDir: 0, sweepShift: 0, sweepTimer: 0, shadow: 0, lfsr: 0x7fff, narrow: false, noiseRate: 0, noiseAcc: 0, waveVol: 0, wavePos: 0 };
+}
+
+class SoundSynth {
+  constructor(apu, capacity = 32768) {
+    this.apu = apu;
+    this.ch = [makeChannel(), makeChannel(), makeChannel(), makeChannel()];
+    this.wave = new Uint8Array(32); // 2 bancos × 16 bytes (0x04000090–9F expone el banco no seleccionado)
+    this.direct = [0, 0];
+    this.buffer = new Float32Array(capacity * 2); // anillo intercalado L/R
+    this.capacity = capacity; this.w = 0; this.r = 0;
+    this.cycleAcc = 0; this.seqAcc = 0; this.seqStep = 0;
+    this.volume = 1;
+  }
+  get available() { return (this.w - this.r + this.capacity) % this.capacity; }
+  activeMask() { let m = 0; for (let i = 0; i < 4; i++) if (this.ch[i].on) m |= 1 << i; return m; }
+  directSample(k, v) { this.direct[k] = v; }
+
+  regs(off) { return this.apu.regs[(off - 0x60) >> 1]; }
+
+  write16(off, v) {
+    const c = this.ch;
+    switch (off) {
+      case 0x60: c[0].sweepShift = v & 7; c[0].sweepDir = (v >> 3) & 1; c[0].sweepTime = (v >> 4) & 7; break;
+      case 0x62: case 0x68: { const k = off === 0x62 ? 0 : 1; c[k].length = 64 - (v & 63); c[k].duty = (v >> 6) & 3; break; }
+      case 0x64: case 0x6c: {
+        const k = off === 0x64 ? 0 : 1, ch = c[k];
+        ch.freq = v & 0x7ff; ch.lengthOn = (v & 0x4000) !== 0;
+        if (v & 0x8000) this.#trigger(k);
+        break;
+      }
+      case 0x70: if (!(v & 0x80)) c[2].on = false; break;
+      case 0x72: c[2].length = 256 - (v & 0xff); break;
+      case 0x74: c[2].freq = v & 0x7ff; c[2].lengthOn = (v & 0x4000) !== 0; if (v & 0x8000) this.#trigger(2); break;
+      case 0x78: c[3].length = 64 - (v & 63); break;
+      case 0x7c: c[3].lengthOn = (v & 0x4000) !== 0; if (v & 0x8000) this.#trigger(3); break;
+      case 0x84: if (!(v & 0x80)) for (const ch of c) ch.on = false; break;
+      default:
+        if (off >= 0x90 && off < 0xa0) { // RAM de onda: se escribe el banco NO seleccionado
+          const bank = (this.regs(0x70) >> 6) & 1, base = (bank ^ 1) * 16 + (off - 0x90);
+          this.wave[base] = v & 0xff; this.wave[base + 1] = v >> 8;
+        }
+    }
+  }
+
+  #envelopeRegs(k) { return k === 0 ? this.regs(0x62) : k === 1 ? this.regs(0x68) : this.regs(0x78); }
+
+  #trigger(k) {
+    const ch = this.ch[k];
+    ch.on = true; ch.phase = 0;
+    if (k === 2) {
+      if (!(this.regs(0x70) & 0x80)) { ch.on = false; return; }
+      if (ch.length === 0) ch.length = 256;
+      ch.wavePos = 0;
+      return;
+    }
+    if (ch.length === 0) ch.length = 64;
+    const env = this.#envelopeRegs(k);
+    ch.vol = env >> 12; ch.envDir = (env >> 11) & 1; ch.envStep = (env >> 8) & 7; ch.envTimer = ch.envStep;
+    if (ch.vol === 0 && ch.envDir === 0) ch.on = false; // DAC apagado
+    if (k === 0) { ch.shadow = ch.freq; ch.sweepTimer = ch.sweepTime || 8; }
+    if (k === 3) {
+      const cnt = this.regs(0x7c);
+      ch.narrow = (cnt & 8) !== 0; ch.lfsr = ch.narrow ? 0x7f : 0x7fff;
+      const r = cnt & 7, s = (cnt >> 4) & 15;
+      ch.noiseRate = (r === 0 ? 1048576 : 524288 / r) / Math.pow(2, s + 1);
+      ch.noiseAcc = 0;
+    }
+  }
+
+  /** Secuenciador de tramas (512 Hz). */
+  #sequencer() {
+    const step = this.seqStep = (this.seqStep + 1) & 7;
+    if (!(step & 1)) for (const ch of this.ch) if (ch.on && ch.lengthOn && --ch.length <= 0) ch.on = false; // 256 Hz
+    if (step === 2 || step === 6) { // barrido 128 Hz
+      const ch = this.ch[0];
+      if (ch.on && ch.sweepTime && --ch.sweepTimer <= 0) {
+        ch.sweepTimer = ch.sweepTime;
+        const delta = ch.shadow >> ch.sweepShift;
+        const nf = ch.sweepDir ? ch.shadow - delta : ch.shadow + delta;
+        if (nf > 2047) ch.on = false;
+        else if (ch.sweepShift) { ch.shadow = nf; ch.freq = nf; }
+      }
+    }
+    if (step === 7) for (const k of [0, 1, 3]) { // envolvente 64 Hz
+      const ch = this.ch[k];
+      if (!ch.on || !ch.envStep) continue;
+      if (--ch.envTimer <= 0) { ch.envTimer = ch.envStep; if (ch.envDir && ch.vol < 15) ch.vol++; else if (!ch.envDir && ch.vol > 0) ch.vol--; }
+    }
+  }
+
+  /** Avanza `cycles` ciclos de CPU generando las muestras correspondientes. */
+  advance(cycles) {
+    this.cycleAcc += cycles;
+    while (this.cycleAcc >= CYCLES_PER_SAMPLE) {
+      this.cycleAcc -= CYCLES_PER_SAMPLE;
+      this.seqAcc += CYCLES_PER_SAMPLE;
+      if (this.seqAcc >= 32768) { this.seqAcc -= 32768; this.#sequencer(); } // 16 777 216 / 512 Hz
+      this.#emit();
+    }
+  }
+
+  #emit() {
+    const cntx = this.regs(0x84);
+    let L = 0, R = 0;
+    if (cntx & 0x80) {
+      const dt = 1 / SAMPLE_RATE;
+      const out = [0, 0, 0, 0];
+      for (let k = 0; k < 2; k++) {
+        const ch = this.ch[k];
+        if (!ch.on) continue;
+        const hz = 131072 / (2048 - ch.freq);
+        ch.phase = (ch.phase + hz * dt) % 1;
+        out[k] = (ch.phase < DUTY[ch.duty] ? 1 : -1) * (ch.vol / 15);
+      }
+      { // canal 3
+        const ch = this.ch[2];
+        const c3 = this.regs(0x70), h3 = this.regs(0x72);
+        if (ch.on && (c3 & 0x80)) {
+          const rate = 2097152 / (2048 - ch.freq);
+          ch.phase += rate * dt;
+          const dims64 = (c3 & 0x20) !== 0, bank = (c3 >> 6) & 1;
+          const len = dims64 ? 64 : 32;
+          while (ch.phase >= 1) { ch.phase -= 1; ch.wavePos = (ch.wavePos + 1) % len; }
+          const pos = ch.wavePos, b = dims64 ? (pos >> 5) ^ bank : bank;
+          const byte = this.wave[b * 16 + ((pos & 31) >> 1)];
+          const s = (pos & 1) ? byte & 15 : byte >> 4;
+          const vol = h3 & 0x8000 ? 0.75 : [0, 1, 0.5, 0.25][(h3 >> 13) & 3];
+          out[2] = ((s / 7.5) - 1) * vol;
+        }
+      }
+      { // canal 4
+        const ch = this.ch[3];
+        if (ch.on) {
+          ch.noiseAcc += ch.noiseRate * dt;
+          while (ch.noiseAcc >= 1) {
+            ch.noiseAcc -= 1;
+            const bit = (ch.lfsr ^ (ch.lfsr >> 1)) & 1;
+            ch.lfsr = (ch.lfsr >> 1) | (bit << (ch.narrow ? 6 : 14));
+          }
+          out[3] = (ch.lfsr & 1 ? -1 : 1) * (ch.vol / 15);
+        }
+      }
+      const cntl = this.regs(0x80), cnth = this.regs(0x82);
+      const psgScale = [0.25, 0.5, 1, 0][cnth & 3];
+      const volR = (cntl & 7) / 7, volL = ((cntl >> 4) & 7) / 7;
+      for (let k = 0; k < 4; k++) {
+        if (cntl & (0x100 << k)) R += out[k] * volR * psgScale;
+        if (cntl & (0x1000 << k)) L += out[k] * volL * psgScale;
+      }
+      L *= 0.25; R *= 0.25; // 4 canales PSG
+      for (let k = 0; k < 2; k++) {
+        const v = (this.direct[k] / 128) * ((cnth >> (2 + k)) & 1 ? 1 : 0.5);
+        if (cnth & (0x100 << (k * 4))) R += v * 0.5;
+        if (cnth & (0x200 << (k * 4))) L += v * 0.5;
+      }
+    }
+    const i = this.w * 2;
+    this.buffer[i] = L * this.volume; this.buffer[i + 1] = R * this.volume;
+    this.w = (this.w + 1) % this.capacity;
+    if (this.w === this.r) this.r = (this.r + 1) % this.capacity; // desbordamiento: se descarta lo más antiguo
+  }
+
+  /** Extrae hasta `n` muestras estéreo (para la salida de audio). */
+  read(outL, outR, n) {
+    let k = 0;
+    for (; k < n && this.r !== this.w; k++) {
+      outL[k] = this.buffer[this.r * 2]; outR[k] = this.buffer[this.r * 2 + 1];
+      this.r = (this.r + 1) % this.capacity;
+    }
+    return k;
+  }
+}
+
+return { SAMPLE_RATE, SoundSynth };
+})();
+// ---- src/bios/hle.js
+__mod["src/bios/hle.js"] = (() => {
+/**
+ * BIOS de alto nivel (HLE). No contiene código de la BIOS de Nintendo.
+ *
+ * 1) Imagen mínima propia en 0x00000000 con el vector de IRQ (6 instrucciones escritas para este
+ *    proyecto a partir del comportamiento documentado en GBATEK, "BIOS Interrupt Handling"):
+ *      stmfd sp!, {r0-r3, r12, lr}   ; guardar registros volátiles
+ *      mov   r0, #0x04000000
+ *      add   lr, pc, #0              ; volver a la instrucción siguiente al salto
+ *      ldr   pc, [r0, #-4]           ; saltar al manejador del juego (puntero en 0x03007FFC)
+ *      ldmfd sp!, {r0-r3, r12, lr}
+ *      subs  pc, lr, #4              ; retorno de la IRQ
+ * 2) Las llamadas SWI se ejecutan en JavaScript (no se entra en modo supervisor).
+ *
+ * Cada función se documenta con su especificación (GBATEK, "BIOS Functions").
+ */
+const SIN = new Int16Array(256);
+for (let i = 0; i < 256; i++) SIN[i] = Math.round(Math.sin((i * 2 * Math.PI) / 256) * 0x4000);
+const sinLut = (a) => SIN[a & 0xff];
+const cosLut = (a) => SIN[(a + 64) & 0xff];
+
+function buildBiosImage() {
+  const bios = new Uint8Array(0x4000);
+  const dv = new DataView(bios.buffer);
+  const LOOP = 0xeafffffe; // b .
+  for (let v = 0; v < 0x20; v += 4) dv.setUint32(v, LOOP, true);
+  dv.setUint32(0x18, 0xea000042, true); // b 0x128 (destino = 0x18 + 8 + 0x42·4)
+  const irq = [0xe92d500f, 0xe3a00301, 0xe28fe000, 0xe510f004, 0xe8bd500f, 0xe25ef004];
+  irq.forEach((w, k) => dv.setUint32(0x128 + k * 4, w, true));
+  return bios;
+}
+
+/** ArcTan de la BIOS: aproximación polinómica documentada. Entrada y salida en punto fijo 1.14 (±π/2 = ±0x4000). */
+function biosArcTan(i) {
+  i = (i << 16) >> 16; // s16
+  const a = -((i * i) >> 14);
+  let b = ((0xa9 * a) >> 14) + 0x390;
+  b = ((b * a) >> 14) + 0x91c;
+  b = ((b * a) >> 14) + 0xfb6;
+  b = ((b * a) >> 14) + 0x16aa;
+  b = ((b * a) >> 14) + 0x2081;
+  b = ((b * a) >> 14) + 0x3651;
+  b = ((b * a) >> 14) + 0xa2f9;
+  return (i * b) >> 16;
+}
+
+/** ArcTan2(x, y): ángulo completo 0..0xFFFF por cuadrantes, usando biosArcTan sobre el cociente ≤ 1. */
+function biosArcTan2(x, y) {
+  x = (x << 16) >> 16; y = (y << 16) >> 16;
+  const at = (n, d) => biosArcTan(Math.trunc((n * 0x4000) / d));
+  let r;
+  if (y === 0) r = x >= 0 ? 0 : 0x8000;
+  else if (x === 0) r = y >= 0 ? 0x4000 : 0xc000;
+  else if (y > 0) {
+    if (x > 0) r = x >= y ? at(y, x) : 0x4000 - at(x, y);
+    else r = -x >= y ? at(y, x) + 0x8000 : 0x4000 - at(x, y);
+  } else if (x < 0) r = -x > -y ? at(y, x) + 0x8000 : 0xc000 - at(x, y);
+  else r = x >= -y ? at(y, x) + 0x10000 : 0xc000 - at(x, y);
+  return r & 0xffff;
+}
+
+class BiosHLE {
+  /** @param {object} emu bus, cpu, irq, io, log, m4aTemplate */
+  constructor(emu) {
+    this.emu = emu;
+    this.calls = new Uint32Array(256);
+    this.unknown = new Map();
+    this.m4aTemplate = null; // dirección de la plantilla de 36 punteros m4a en la ROM (o null)
+  }
+
+  swi(n) {
+    const { cpu, bus, irq } = this.emu;
+    const r = cpu.r;
+    this.calls[n]++;
+    switch (n) {
+      case 0x00: return this.softReset();
+      case 0x01: return this.registerRamReset(r[0]);
+      case 0x02: irq.halted = true; return; // Halt
+      case 0x03: irq.halted = true; irq.stopped = true; return; // Stop
+      case 0x04: return this.intrWait(r[0] !== 0, r[1] & 0xffff);
+      case 0x05: return this.intrWait(true, 1);
+      case 0x06: return this.div(r[0] | 0, r[1] | 0);
+      case 0x07: return this.div(r[1] | 0, r[0] | 0); // DivArm: argumentos invertidos
+      case 0x08: r[0] = Math.floor(Math.sqrt(r[0] >>> 0)); cpu.cycles += 50; return;
+      case 0x09: r[0] = biosArcTan(r[0]) >>> 0; cpu.cycles += 30; return;
+      case 0x0a: r[0] = biosArcTan2(r[0], r[1]); cpu.cycles += 50; return;
+      case 0x0b: return this.cpuSet(r[0], r[1], r[2]);
+      case 0x0c: return this.cpuFastSet(r[0], r[1], r[2]);
+      case 0x0d: r[0] = 0xbaae187f; return; // GetBiosChecksum: valor documentado de la BIOS de GBA
+      case 0x0e: return this.bgAffineSet(r[0], r[1], r[2]);
+      case 0x0f: return this.objAffineSet(r[0], r[1], r[2], r[3]);
+      case 0x10: return this.bitUnPack(r[0], r[1], r[2]);
+      case 0x11: return this.lz77(r[0], r[1], false);
+      case 0x12: return this.lz77(r[0], r[1], true);
+      case 0x13: return this.huffman(r[0], r[1]);
+      case 0x14: return this.rl(r[0], r[1], false);
+      case 0x15: return this.rl(r[0], r[1], true);
+      case 0x16: return this.diff8(r[0], r[1], false);
+      case 0x17: return this.diff8(r[0], r[1], true);
+      case 0x18: return this.diff16(r[0], r[1]);
+      case 0x19: { // SoundBias: sube/baja el nivel de SOUNDBIAS a 0x200 o 0
+        const cur = bus.read16(0x04000088);
+        bus.write16(0x04000088, (cur & 0xfc00) | (r[0] ? 0x200 : 0));
+        return;
+      }
+      case 0x1f: { // MidiKey2Freq(wa, mk, fp) = wa->freq / 2^((180 − mk − fp/256) / 12)
+        const freq = bus.read32((r[0] + 4) >>> 0);
+        r[0] = (freq / Math.pow(2, (180 - (r[1] & 0xff) - (r[2] & 0xff) / 256) / 12)) >>> 0;
+        return;
+      }
+      case 0x25: r[0] = 1; return; // MultiBoot: sin cable, siempre falla
+      case 0x2a: return this.musicPlayerJumpTableCopy(r[0]);
+      default:
+        this.unknown.set(n, (this.unknown.get(n) || 0) + 1);
+        this.emu.log?.('warn', `SWI 0x${n.toString(16)} no implementada (PC ${(cpu.next >>> 0).toString(16)})`);
+    }
+  }
+
+  // ------------------------------------------------------------------ sistema
+  softReset() {
+    const { cpu, bus } = this.emu;
+    const flag = bus.read8(0x03007ffa);
+    for (let a = 0x03007e00; a < 0x03008000; a += 4) bus.write32(a, 0);
+    cpu.resetToRom(flag ? 0x02000000 : 0x08000000);
+  }
+
+  registerRamReset(flags) {
+    const { bus } = this.emu;
+    if (flags & 1) bus.ewram.fill(0);
+    if (flags & 2) bus.iwram.fill(0, 0, 0x7e00); // los últimos 0x200 bytes (pilas, vectores) se conservan
+    if (flags & 4) bus.pal.fill(0);
+    if (flags & 8) bus.vram.fill(0);
+    if (flags & 16) bus.oam.fill(0);
+    if (flags & 32) for (let a = 0x120; a < 0x160; a += 2) bus.write16(0x04000000 + a, 0);
+    if (flags & 64) for (let a = 0x60; a < 0xa8; a += 2) bus.write16(0x04000000 + a, 0);
+    if (flags & 128) {
+      for (let a = 0x00; a < 0x60; a += 2) bus.write16(0x04000000 + a, 0);
+      bus.write16(0x04000000, 0x0080); // DISPCNT: forced blank
+      bus.write16(0x04000020, 0x100); bus.write16(0x04000026, 0x100); bus.write16(0x04000030, 0x100); bus.write16(0x04000036, 0x100);
+    }
+  }
+
+  /**
+   * IntrWait/VBlankIntrWait. La BIOS activa IME y espera a que el manejador del juego marque
+   * el bit en 0x03007FF8 (BIOS_IF). Implementación: si el bit no está, se detiene la CPU (HALT)
+   * y se vuelve a ejecutar la misma SWI al despertar, sin repetir el borrado inicial.
+   */
+  intrWait(discard, mask) {
+    const { cpu, bus, irq } = this.emu;
+    irq.ime = 1;
+    if (!cpu.inIntrWait) {
+      cpu.inIntrWait = true;
+      if (discard) bus.write16(0x03007ff8, bus.read16(0x03007ff8) & ~mask);
+    }
+    const flags = bus.read16(0x03007ff8);
+    if (flags & mask) {
+      bus.write16(0x03007ff8, flags & ~mask);
+      cpu.inIntrWait = false;
+      return;
+    }
+    irq.halted = true;
+    cpu.branch(cpu.next - (cpu.t ? 2 : 4)); // repetir la SWI tras la interrupción
+  }
+
+  div(num, den) {
+    const { cpu } = this.emu, r = cpu.r;
+    if (den === 0) { // la BIOS real entra en un bucle muy largo; se devuelve un valor definido
+      this.emu.log?.('warn', `Div entre 0 (numerador ${num})`);
+      r[0] = num < 0 ? -1 >>> 0 : 1; r[1] = num >>> 0; r[3] = 1; return;
+    }
+    const q = Math.trunc(num / den);
+    r[0] = q >>> 0; r[1] = (num - q * den) >>> 0; r[3] = Math.abs(q) >>> 0;
+    cpu.cycles += 40;
+  }
+
+  // ------------------------------------------------------------------ copias
+  cpuSet(src, dst, ctrl) {
+    const { bus, cpu } = this.emu;
+    const count = ctrl & 0x1fffff, fill = (ctrl >>> 24) & 1, word = (ctrl >>> 26) & 1;
+    if (word) {
+      src &= ~3; dst &= ~3;
+      const v = fill ? bus.read32(src) : 0;
+      for (let k = 0; k < count; k++) { bus.write32(dst + k * 4, fill ? v : bus.read32(src + k * 4)); }
+    } else {
+      src &= ~1; dst &= ~1;
+      const v = fill ? bus.read16(src) : 0;
+      for (let k = 0; k < count; k++) { bus.write16(dst + k * 2, fill ? v : bus.read16(src + k * 2)); }
+    }
+    cpu.cycles += 10 + count * 4;
+  }
+  cpuFastSet(src, dst, ctrl) {
+    const { bus, cpu } = this.emu;
+    const count = ((ctrl & 0x1fffff) + 7) & ~7, fill = (ctrl >>> 24) & 1; // múltiplo de 8 palabras
+    src &= ~3; dst &= ~3;
+    const v = fill ? bus.read32(src) : 0;
+    for (let k = 0; k < count; k++) bus.write32(dst + k * 4, fill ? v : bus.read32(src + k * 4));
+    cpu.cycles += 10 + count * 2;
+  }
+
+  // ------------------------------------------------------------------ afines
+  bgAffineSet(src, dst, count) {
+    const { bus } = this.emu;
+    const s16 = (a) => (bus.read16(a) << 16) >> 16, s32 = (a) => bus.read32(a) | 0;
+    for (let k = 0; k < count; k++, src += 20, dst += 16) {
+      const ox = s32(src), oy = s32(src + 4), dx = s16(src + 8), dy = s16(src + 10);
+      const sx = s16(src + 12), sy = s16(src + 14), theta = bus.read16(src + 16) >>> 8;
+      const cos = cosLut(theta), sin = sinLut(theta);
+      const pa = (sx * cos) >> 14, pb = -((sx * sin) >> 14), pc = (sy * sin) >> 14, pd = (sy * cos) >> 14;
+      bus.write16(dst, pa); bus.write16(dst + 2, pb); bus.write16(dst + 4, pc); bus.write16(dst + 6, pd);
+      bus.write32(dst + 8, (ox - (pa * dx + pb * dy)) >>> 0);
+      bus.write32(dst + 12, (oy - (pc * dx + pd * dy)) >>> 0);
+    }
+  }
+  objAffineSet(src, dst, count, stride) {
+    const { bus } = this.emu;
+    const s16 = (a) => (bus.read16(a) << 16) >> 16;
+    for (let k = 0; k < count; k++, src += 8, dst += stride * 4) {
+      const sx = s16(src), sy = s16(src + 2), theta = bus.read16(src + 4) >>> 8;
+      const cos = cosLut(theta), sin = sinLut(theta);
+      bus.write16(dst, (sx * cos) >> 14);
+      bus.write16(dst + stride, -((sx * sin) >> 14));
+      bus.write16(dst + stride * 2, (sy * sin) >> 14);
+      bus.write16(dst + stride * 3, (sy * cos) >> 14);
+    }
+  }
+
+  // ------------------------------------------------------------------ descompresión
+  /** Escribe bytes en el destino: a WRAM byte a byte; a VRAM en halfwords (la VRAM no acepta bytes). */
+  #emit(dst, data, vram) {
+    const { bus, cpu } = this.emu;
+    if (vram) { for (let k = 0; k + 1 < data.length; k += 2) bus.write16(dst + k, data[k] | (data[k + 1] << 8)); if (data.length & 1) bus.write16(dst + data.length - 1, data[data.length - 1]); }
+    else for (let k = 0; k < data.length; k++) bus.write8(dst + k, data[k]);
+    cpu.cycles += data.length * 3;
+  }
+
+  lz77(src, dst, vram) {
+    const { bus } = this.emu;
+    const header = bus.read32(src);
+    const size = header >>> 8;
+    const out = new Uint8Array(size);
+    let s = src + 4, o = 0;
+    while (o < size) {
+      const flags = bus.read8(s++);
+      for (let bit = 7; bit >= 0 && o < size; bit--) {
+        if (flags & (1 << bit)) {
+          const b0 = bus.read8(s++), b1 = bus.read8(s++);
+          const len = (b0 >> 4) + 3, disp = (((b0 & 15) << 8) | b1) + 1;
+          for (let k = 0; k < len && o < size; k++, o++) out[o] = o - disp >= 0 ? out[o - disp] : 0;
+        } else out[o++] = bus.read8(s++);
+      }
+    }
+    this.#emit(dst, out, vram);
+  }
+
+  rl(src, dst, vram) {
+    const { bus } = this.emu;
+    const size = bus.read32(src) >>> 8;
+    const out = new Uint8Array(size);
+    let s = src + 4, o = 0;
+    while (o < size) {
+      const flag = bus.read8(s++);
+      if (flag & 0x80) { const len = (flag & 0x7f) + 3, v = bus.read8(s++); for (let k = 0; k < len && o < size; k++) out[o++] = v; }
+      else { const len = (flag & 0x7f) + 1; for (let k = 0; k < len && o < size; k++) out[o++] = bus.read8(s++); }
+    }
+    this.#emit(dst, out, vram);
+  }
+
+  huffman(src, dst) {
+    const { bus } = this.emu;
+    const header = bus.read32(src);
+    const bits = header & 15, size = header >>> 8;
+    const treeSize = (bus.read8(src + 4) + 1) * 2;
+    const treeBase = src + 5;
+    let stream = src + 4 + treeSize;
+    const out = new Uint8Array(size);
+    let o = 0, nodeAddr = treeBase, outBuf = 0, outBits = 0;
+    let word = 0, wordBits = 0;
+    let node = bus.read8(nodeAddr);
+    while (o < size) {
+      if (wordBits === 0) { word = bus.read32(stream); stream += 4; wordBits = 32; }
+      const bit = (word >>> 31) & 1; word = (word << 1) >>> 0; wordBits--;
+      const next = (nodeAddr & ~1) + (node & 0x3f) * 2 + 2 + bit;
+      const isLeaf = bit ? node & 0x40 : node & 0x80;
+      if (isLeaf) {
+        outBuf |= bus.read8(next) << outBits; outBits += bits;
+        if (outBits === 8) { out[o++] = outBuf & 0xff; outBuf = 0; outBits = 0; }
+        nodeAddr = treeBase; node = bus.read8(nodeAddr);
+      } else { nodeAddr = next; node = bus.read8(nodeAddr); }
+    }
+    this.#emit(dst, out, false);
+  }
+
+  diff8(src, dst, vram) {
+    const { bus } = this.emu;
+    const size = bus.read32(src) >>> 8;
+    const out = new Uint8Array(size);
+    let acc = 0;
+    for (let k = 0; k < size; k++) { acc = (acc + bus.read8(src + 4 + k)) & 0xff; out[k] = acc; }
+    this.#emit(dst, out, vram);
+  }
+  diff16(src, dst) {
+    const { bus } = this.emu;
+    const size = bus.read32(src) >>> 8;
+    let acc = 0;
+    for (let k = 0; k < size; k += 2) { acc = (acc + bus.read16(src + 4 + k)) & 0xffff; bus.write16(dst + k, acc); }
+  }
+
+  bitUnPack(src, dst, info) {
+    const { bus } = this.emu;
+    const len = bus.read16(info), srcW = bus.read8(info + 2), dstW = bus.read8(info + 3);
+    const offWord = bus.read32(info + 4), offset = offWord & 0x7fffffff, zeroToo = offWord >>> 31;
+    let outWord = 0, outBits = 0, d = dst;
+    for (let k = 0; k < len; k++) {
+      const byte = bus.read8(src + k);
+      for (let b = 0; b < 8; b += srcW) {
+        let v = (byte >> b) & ((1 << srcW) - 1);
+        if (v || zeroToo) v += offset;
+        outWord = (outWord | ((v & ((1 << dstW) - 1)) << outBits)) >>> 0;
+        outBits += dstW;
+        if (outBits >= 32) { bus.write32(d, outWord); d += 4; outWord = 0; outBits = 0; }
+      }
+    }
+  }
+
+  // ------------------------------------------------------------------ sonido
+  /**
+   * MusicPlayerJumpTableCopy (0x2A): la BIOS copia 36 punteros a sus rutinas del reproductor m4a.
+   * Sin BIOS real, se copia la plantilla equivalente que incluye la ROM del juego (localizada por
+   * forma al cargarla; ver docs/PLAN.md).
+   */
+  musicPlayerJumpTableCopy(dst) {
+    const { bus } = this.emu;
+    if (this.m4aTemplate === null) {
+      this.emu.log?.('error', 'SWI 0x2A: no se encontró la plantilla m4a en la ROM; la música no funcionará');
+      return;
+    }
+    for (let k = 0; k < 36; k++) bus.write32(dst + k * 4, bus.read32(this.m4aTemplate + k * 4));
+    this.m4aTableDst = dst;
+  }
+}
+
+/**
+ * Busca la plantilla m4a: 36 punteros Thumb a ROM donde las entradas 0, 5, 6, 7 y 8 son la misma
+ * rutina (ply_fine) y las entradas 1 a 4 son distintas. Devuelve la dirección GBA o null.
+ */
+function findM4aTemplate(rom, limit = rom.length) {
+  const dv = new DataView(rom.buffer, rom.byteOffset, rom.byteLength);
+  for (let o = 0; o + 144 <= limit; o += 4) {
+    const t0 = dv.getUint32(o, true);
+    if ((t0 >>> 24) !== 8 || !(t0 & 1)) continue;
+    if (dv.getUint32(o + 20, true) !== t0 || dv.getUint32(o + 24, true) !== t0 || dv.getUint32(o + 28, true) !== t0 || dv.getUint32(o + 32, true) !== t0) continue;
+    let ok = true;
+    for (let i = 1; i < 36 && ok; i++) { const v = dv.getUint32(o + i * 4, true); if ((v >>> 24) !== 8) ok = false; else if (i <= 4 && v === t0) ok = false; }
+    if (ok) return 0x08000000 + o;
+  }
+  return null;
+}
+
+return { buildBiosImage, biosArcTan, biosArcTan2, BiosHLE, findM4aTemplate };
+})();
+// ---- src/cartridge/romLoader.js
+__mod["src/cartridge/romLoader.js"] = (() => {
+/**
+ * Cargador y validación de ROM (GBATEK, "GBA Cartridge Header"). Todo se procesa en local.
+ * Devuelve metadatos y la lista de errores/advertencias legibles para la interfaz.
+ */
+class RomError extends Error {}
+
+const SAVE_IDS = [['EEPROM_V', 'eeprom'], ['SRAM_F_V', 'sram'], ['SRAM_V', 'sram'], ['FLASH1M_V', 'flash128'], ['FLASH512_V', 'flash64'], ['FLASH_V', 'flash64']];
+
+function findAscii(bytes, text, limit = bytes.length) {
+  const first = text.charCodeAt(0);
+  outer: for (let i = 0; i + text.length <= limit; i++) {
+    if (bytes[i] !== first) continue;
+    for (let k = 1; k < text.length; k++) if (bytes[i + k] !== text.charCodeAt(k)) continue outer;
+    return i;
+  }
+  return -1;
+}
+
+function headerComplement(b) { let c = 0; for (let i = 0xa0; i <= 0xbc; i++) c -= b[i]; return (c - 0x19) & 0xff; }
+
+/** @param {Uint8Array} bytes @param {string} [fileName] */
+function inspectRom(bytes, fileName = '') {
+  const warnings = [];
+  if (bytes.length < 0xc0) throw new RomError(`El archivo es demasiado pequeño para ser una ROM de GBA (${bytes.length} bytes).`);
+  if (bytes.length > 0x2000000) throw new RomError(`El archivo mide ${(bytes.length / 1048576).toFixed(1)} MiB: una ROM de GBA no supera 32 MiB.`);
+  if (/\.zip$/i.test(fileName) || (bytes[0] === 0x50 && bytes[1] === 0x4b)) throw new RomError('Es un archivo comprimido (.zip). Descomprímelo y selecciona el .gba que contiene.');
+  const ascii = (o, n) => String.fromCharCode(...bytes.subarray(o, o + n)).replace(/\0+$/, '');
+  const title = ascii(0xa0, 12), gameCode = ascii(0xac, 4), maker = ascii(0xb0, 2);
+  const checksumOk = headerComplement(bytes) === bytes[0xbd];
+  if (bytes[0xb2] !== 0x96) warnings.push('El byte fijo de la cabecera (0xB2) no es 0x96: la cabecera puede estar dañada.');
+  if (!checksumOk) warnings.push('El checksum de la cabecera no coincide: la ROM puede estar dañada o modificada.');
+  const limit = bytes.length;
+  let saveType = 'none', saveId = null;
+  for (const [id, type] of SAVE_IDS) {
+    const at = findAscii(bytes, id, limit);
+    if (at >= 0) { saveType = type; saveId = String.fromCharCode(...bytes.subarray(at, at + id.length + 3)); break; }
+  }
+  const rtc = findAscii(bytes, 'SIIRTC_V', limit) >= 0;
+  const isEmerald = title === 'POKEMON EMER' && /^BPE.$/.test(gameCode);
+  if (!isEmerald) warnings.push(`El juego es "${title}" (${gameCode}). El emulador se ha validado con Pokémon Esmeralda; otros juegos pueden fallar.`);
+  return { title, gameCode, maker, version: bytes[0xbc], size: bytes.length, checksumOk, saveType, saveId, rtc, isEmerald, warnings };
+}
+
+/** CRC32 (para identificar la partida guardada asociada a cada ROM sin almacenar la ROM). */
+function crc32(bytes) {
+  let c = ~0;
+  for (let i = 0; i < bytes.length; i++) { c ^= bytes[i]; for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1)); }
+  return (~c) >>> 0;
+}
+
+return { RomError, headerComplement, inspectRom, crc32 };
+})();
+// ---- src/cartridge/saveMemory.js
+__mod["src/cartridge/saveMemory.js"] = (() => {
+/**
+ * Memorias de guardado del cartucho (GBATEK, "GBA Cart Backup").
+ * - SRAM 32 KiB: lectura/escritura directa de bytes.
+ * - Flash 64/128 KiB: máquina de estados de comandos (AA→5555, 55→2AAA, comando→5555):
+ *     90 ID, F0 salir de ID, 80+10 borrar chip, 80+30 borrar sector (4 KiB), A0 escribir byte,
+ *     B0 cambio de banco (solo 128 KiB). IDs según el juego: Macronix MX29L010 (0xC2, 0x09).
+ * - EEPROM 512 B / 8 KiB: protocolo serie por DMA3 en 0x0D000000 (implementado en eeprom.js en fase 9).
+ * Todas marcan `dirty` al cambiar para que el gestor de guardado persista los datos.
+ */
+class Sram {
+  constructor(size = 0x8000) { this.type = 'sram'; this.data = new Uint8Array(size).fill(0xff); this.dirty = false; }
+  read8(a) { return this.data[a % this.data.length]; }
+  write8(a, v) { this.data[a % this.data.length] = v; this.dirty = true; }
+}
+
+class Flash {
+  /** @param {number} size 0x10000 o 0x20000 */
+  constructor(size = 0x20000, ids = size === 0x20000 ? [0xc2, 0x09] : [0x32, 0x1b]) {
+    this.type = size === 0x20000 ? 'flash128' : 'flash64';
+    this.data = new Uint8Array(size).fill(0xff);
+    this.ids = ids; this.bank = 0; this.state = 0; this.idMode = false; this.mode = null; this.dirty = false;
+    this.log = [];
+  }
+  read8(a) {
+    a &= 0xffff;
+    if (this.idMode && a < 2) return this.ids[a];
+    return this.data[this.bank * 0x10000 + a];
+  }
+  write8(a, v) {
+    a &= 0xffff;
+    if (this.mode === 'write') { this.data[this.bank * 0x10000 + a] = v; this.mode = null; this.dirty = true; return; }
+    if (this.mode === 'bank') { if (a === 0) this.bank = (v & 1) % (this.data.length >> 16); this.mode = null; return; }
+    if (this.state === 0 && a === 0x5555 && v === 0xaa) { this.state = 1; return; }
+    if (this.state === 1 && a === 0x2aaa && v === 0x55) { this.state = 2; return; }
+    if (this.state === 2) {
+      this.state = 0;
+      if (this.mode === 'erase') {
+        this.mode = null;
+        if (a === 0x5555 && v === 0x10) { this.data.fill(0xff); this.dirty = true; this.log.push('erase-chip'); }
+        else if (v === 0x30) { const base = this.bank * 0x10000 + (a & 0xf000); this.data.fill(0xff, base, base + 0x1000); this.dirty = true; }
+        return;
+      }
+      if (a !== 0x5555) return;
+      switch (v) {
+        case 0x90: this.idMode = true; return;
+        case 0xf0: this.idMode = false; return;
+        case 0x80: this.mode = 'erase'; return;
+        case 0xa0: this.mode = 'write'; return;
+        case 0xb0: if (this.data.length > 0x10000) this.mode = 'bank'; return;
+        default: return;
+      }
+    }
+    if (v === 0xf0) { this.idMode = false; this.state = 0; return; }
+    this.state = 0;
+  }
+}
+
+/** Crea la memoria indicada por el identificador de biblioteca encontrado en la ROM. */
+function createSaveMemory(type) {
+  switch (type) {
+    case 'flash128': return new Flash(0x20000);
+    case 'flash64': return new Flash(0x10000);
+    case 'sram': return new Sram();
+    default: return null;
+  }
+}
+
+return { Sram, Flash, createSaveMemory };
+})();
+// ---- src/cartridge/gpio.js
+__mod["src/cartridge/gpio.js"] = (() => {
+/**
+ * Puerto GPIO del cartucho (0x080000C4 datos, C6 dirección, C8 habilitación de lectura) con el
+ * reloj Seiko S-3511 conectado: bit 0 SCK, bit 1 SIO, bit 2 CS.
+ * Protocolo (tal como lo usa el juego, siirtc.c de la descompilación): con CS alto, cada bit se toma
+ * en el flanco de subida de SCK; el comando va con el bit más significativo primero y los datos con
+ * el menos significativo primero. Comando = 0x60 | n << 1 | lectura (n: 0 reset, 1 estado,
+ * 2 fecha y hora [7 bytes BCD], 3 hora [3 bytes], 4 alarma [2 bytes]).
+ * La hora es la del equipo más un desfase que el juego puede ajustar escribiendo.
+ */
+const LEN = [0, 1, 7, 3, 2, 0, 0, 0];
+const bcd = (n) => ((Math.floor(n / 10) << 4) | (n % 10)) & 0xff;
+const unbcd = (b) => (b >> 4) * 10 + (b & 15);
+
+class RTC {
+  constructor(now = () => Date.now()) {
+    this.now = now; this.offsetMs = 0; this.status = 0x40; // 24 h, sin fallo de alimentación
+    this.reset();
+  }
+  reset() { this.bitCount = 0; this.byte = 0; this.cmd = -1; this.reading = false; this.buf = []; this.pos = 0; this.out = 1; }
+  dateBytes() {
+    const d = new Date(this.now() + this.offsetMs);
+    return [bcd(d.getFullYear() % 100), bcd(d.getMonth() + 1), bcd(d.getDate()), bcd(d.getDay()), bcd(d.getHours()), bcd(d.getMinutes()), bcd(d.getSeconds())];
+  }
+  begin() { this.reset(); }
+  /** Un flanco de subida de SCK con el bit de entrada `sio`. */
+  clock(sio) {
+    if (this.cmd < 0) {
+      this.byte = (this.byte << 1) | sio; // comando: MSB primero
+      if (++this.bitCount === 8) {
+        const b = this.byte & 0xff;
+        this.bitCount = 0; this.byte = 0;
+        if ((b & 0xf0) !== 0x60) return;
+        this.cmd = (b >> 1) & 7; this.reading = (b & 1) === 1;
+        if (this.cmd === 0) { this.status = 0x40; this.offsetMs = 0; }
+        if (this.reading) this.buf = this.cmd === 1 ? [this.status] : this.cmd === 2 ? this.dateBytes() : this.cmd === 3 ? this.dateBytes().slice(4) : [0, 0];
+        this.pos = 0;
+      }
+      return;
+    }
+    if (this.reading) {
+      const byte = this.buf[this.pos >> 3] ?? 0;
+      this.out = (byte >> (this.pos & 7)) & 1; // datos: LSB primero
+      this.pos++;
+    } else {
+      this.byte |= sio << this.bitCount;
+      if (++this.bitCount === 8) { this.buf.push(this.byte); this.byte = 0; this.bitCount = 0; if (this.buf.length >= LEN[this.cmd]) this.#applyWrite(); }
+    }
+  }
+  #applyWrite() {
+    if (this.cmd === 1) this.status = this.buf[0] & 0x6a | 0x40;
+    if (this.cmd === 2 && this.buf.length >= 7) {
+      const b = this.buf;
+      const target = new Date(2000 + unbcd(b[0]), unbcd(b[1]) - 1, unbcd(b[2]), unbcd(b[4] & 0x3f), unbcd(b[5]), unbcd(b[6] & 0x7f));
+      this.offsetMs = target.getTime() - this.now();
+    }
+  }
+}
+
+class GPIO {
+  constructor(rtc) { this.rtc = rtc; this.data = 0; this.dir = 0; this.readable = false; this.prevSck = 0; this.prevCs = 0; }
+  read(a) {
+    switch (a & 0xe) {
+      case 0x4: { // datos: los pines de salida devuelven lo escrito; SIO de entrada, el bit del RTC
+        let v = this.data & this.dir;
+        if (!(this.dir & 2)) v |= this.rtc.out << 1;
+        return v & 0xf;
+      }
+      case 0x6: return this.dir;
+      case 0x8: return this.readable ? 1 : 0;
+      default: return 0;
+    }
+  }
+  write(a, v) {
+    switch (a & 0xe) {
+      case 0x4: {
+        this.data = (this.data & ~this.dir) | (v & this.dir & 0xf);
+        const sck = this.data & 1, sio = (this.data >> 1) & 1, cs = (this.data >> 2) & 1;
+        if (cs && !this.prevCs) this.rtc.begin();
+        if (cs && sck && !this.prevSck) this.rtc.clock(sio);
+        if (!cs) this.rtc.reset();
+        this.prevSck = sck; this.prevCs = cs;
+        return;
+      }
+      case 0x6: this.dir = v & 0xf; return;
+      case 0x8: this.readable = (v & 1) === 1; return;
+      default: return;
+    }
+  }
+}
+
+return { RTC, GPIO };
+})();
+// ---- src/emulator.js
+__mod["src/emulator.js"] = (() => {
+/**
+ * Emulador GBA: crea y conecta los módulos y ejecuta fotogramas.
+ * Un fotograma = 228 líneas × 1232 ciclos = 280 896 ciclos (≈ 59,73 Hz a 16,78 MHz).
+ * Dentro de cada tramo se ejecuta la CPU en porciones que terminan en el siguiente desbordamiento
+ * de timer, para que las interrupciones de timer y el FIFO de audio ocurran con precisión de ciclo.
+ */
+const { Bus } = __mod["src/memory/bus.js"];
+const { IO } = __mod["src/memory/io.js"];
+const { ARM7TDMI } = __mod["src/cpu/arm7tdmi.js"];
+const { Interrupts } = __mod["src/hardware/interrupts.js"];
+const { Timers } = __mod["src/hardware/timers.js"];
+const { DMA, DMA_TIMING } = __mod["src/hardware/dma.js"];
+const { Keypad } = __mod["src/hardware/keypad.js"];
+const { Serial } = __mod["src/hardware/serial.js"];
+const { PPU } = __mod["src/video/ppu.js"];
+const { APU } = __mod["src/audio/apu.js"];
+const { SoundSynth } = __mod["src/audio/sound.js"];
+const { BiosHLE, buildBiosImage, findM4aTemplate } = __mod["src/bios/hle.js"];
+const { inspectRom } = __mod["src/cartridge/romLoader.js"];
+const { createSaveMemory } = __mod["src/cartridge/saveMemory.js"];
+const { GPIO, RTC } = __mod["src/cartridge/gpio.js"];
+const CYCLES_PER_LINE = 1232, HDRAW_CYCLES = 960, LINES = 228;
+const CYCLES_PER_FRAME = CYCLES_PER_LINE * LINES;
+const CPU_HZ = 16777216;
+
+class GBA {
+  constructor({ log } = {}) {
+    this.log = log ?? (() => {});
+    this.bus = new Bus();
+    this.irq = new Interrupts();
+    this.io = new IO(this);
+    this.bus.io = this.io;
+    this.cpu = new ARM7TDMI(this.bus);
+    this.cpu.irq = this.irq;
+    this.timers = new Timers(this.irq);
+    this.dma = new DMA(this.bus, this.irq);
+    this.keypad = new Keypad(this.irq);
+    this.serial = new Serial(this.irq, this.io);
+    this.ppu = new PPU(this.bus, this.io, this.irq);
+    this.apu = new APU(this);
+    this.synth = new SoundSynth(this.apu);
+    this.apu.sink = this.synth;
+    this.timers.onOverflow = (t) => { if (t < 2) this.apu.timerOverflow(t); };
+    this.bios = new BiosHLE(this);
+    this.cpu.swiHandler = (n) => this.bios.swi(n);
+    this.cpu.undefinedHandler = (op, pc, thumb) => this.log('error', `Instrucción no definida ${thumb ? 'Thumb' : 'ARM'} 0x${op.toString(16)} en 0x${pc.toString(16)}`);
+    this.bus.bios.set(buildBiosImage());
+    this.info = null;
+    this.frameCount = 0;
+    this.onFrame = null;
+  }
+
+  now() { return this.cpu.cycles; }
+
+  /** Carga una ROM (Uint8Array) y deja el sistema listo en el punto de entrada del cartucho. */
+  loadRom(bytes, fileName = '') {
+    const info = inspectRom(bytes, fileName);
+    this.info = info;
+    this.bus.loadRom(bytes);
+    this.bus.save = createSaveMemory(info.saveType);
+    if (info.rtc) { this.rtc = new RTC(); this.bus.gpio = new GPIO(this.rtc); } else { this.rtc = null; this.bus.gpio = null; }
+    this.bios.m4aTemplate = findM4aTemplate(bytes, Math.min(bytes.length, 0x1000000));
+    this.reset();
+    return info;
+  }
+
+  reset() {
+    const b = this.bus;
+    b.ewram.fill(0); b.iwram.fill(0); b.pal.fill(0); b.vram.fill(0); b.oam.fill(0);
+    this.io.regs.fill(0);
+    this.irq.ie = this.irq.if = this.irq.ime = 0; this.irq.halted = false;
+    this.ppu.dispstat = 0; this.ppu.vcount = 0;
+    b.setWaitcnt(0);
+    this.cpu.cycles = 0; this.timers.lastCycle = 0;
+    this.cpu.inIntrWait = false;
+    this.io.write16(0x04000088, 0x200); // SOUNDBIAS tras el arranque de la BIOS
+    this.cpu.resetToRom(0x08000000);
+    this.frameCount = 0;
+  }
+
+  /** Ejecuta la CPU durante `cycles` ciclos, cortando en cada desbordamiento de timer. */
+  #runCpu(cycles) {
+    const cpu = this.cpu, timers = this.timers, dma = this.dma;
+    const end = cpu.cycles + cycles;
+    let last = cpu.cycles;
+    while (cpu.cycles < end) {
+      const toTimer = timers.cyclesUntilOverflow();
+      const toSerial = this.serial.pending ? Math.max(1, this.serial.pending - cpu.cycles) : Infinity;
+      const slice = Math.max(1, Math.min(end - cpu.cycles, toTimer, toSerial));
+      cpu.run(slice);
+      if (dma.cyclesUsed) { cpu.cycles += dma.cyclesUsed; dma.cyclesUsed = 0; }
+      timers.sync(cpu.cycles);
+      if (this.serial.pending) this.serial.update(cpu.cycles);
+      this.synth.advance(cpu.cycles - last); last = cpu.cycles;
+    }
+  }
+
+  /** Ejecuta un fotograma completo (desde la línea 0 hasta el final del VBlank). */
+  runFrame() {
+    const ppu = this.ppu, dma = this.dma;
+    for (let y = 0; y < LINES; y++) {
+      if (ppu.startLine(y)) dma.trigger(DMA_TIMING.VBLANK);
+      this.#runCpu(HDRAW_CYCLES);
+      if (y < 160) ppu.renderLine(y);
+      ppu.startHblank();
+      if (y < 160) dma.trigger(DMA_TIMING.HBLANK);
+      this.#runCpu(CYCLES_PER_LINE - HDRAW_CYCLES);
+      ppu.endHblank();
+    }
+    this.frameCount++;
+    this.onFrame?.(ppu.framebuffer);
+  }
+}
+
+return { CYCLES_PER_LINE, CYCLES_PER_FRAME, CPU_HZ, GBA, HDRAW_CYCLES, LINES };
+})();
+// ---- src/audio/webAudio.js
+__mod["src/audio/webAudio.js"] = (() => {
+/**
+ * Salida de audio con Web Audio API. Las muestras del sintetizador (32 768 Hz estéreo) se
+ * remuestrean linealmente a la frecuencia del AudioContext dentro de un ScriptProcessorNode.
+ * Se usa ScriptProcessor porque funciona también al abrir la página como archivo local, donde
+ * AudioWorklet no puede cargar su módulo.
+ */
+const { SAMPLE_RATE } = __mod["src/audio/sound.js"];
+class AudioOutput {
+  constructor(synth) {
+    this.synth = synth; this.ctx = null; this.node = null; this.gain = null; this.volume = 0.8; this.muted = false;
+    this.tmpL = new Float32Array(16384); this.tmpR = new Float32Array(16384);
+    this.pos = 0; this.lastL = 0; this.lastR = 0; this.underruns = 0;
+  }
+  /** Debe llamarse desde un gesto del usuario (política de reproducción automática de los navegadores). */
+  async start() {
+    if (this.ctx) { if (this.ctx.state === 'suspended') await this.ctx.resume(); return; }
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) throw new Error('Este navegador no tiene Web Audio API');
+    this.ctx = new Ctx();
+    this.gain = this.ctx.createGain(); this.gain.gain.value = this.muted ? 0 : this.volume;
+    this.node = this.ctx.createScriptProcessor(2048, 0, 2);
+    this.node.onaudioprocess = (e) => this.#fill(e.outputBuffer);
+    this.node.connect(this.gain); this.gain.connect(this.ctx.destination);
+  }
+  #fill(buf) {
+    const outL = buf.getChannelData(0), outR = buf.getChannelData(1), n = outL.length;
+    const step = SAMPLE_RATE / this.ctx.sampleRate;
+    const need = Math.ceil(n * step) + 2;
+    // Si hay demasiado retraso (> 0,2 s), se descarta lo antiguo para no acumular latencia
+    while (this.synth.available > SAMPLE_RATE * 0.2) this.synth.read(this.tmpL, this.tmpR, Math.min(4096, this.synth.available - SAMPLE_RATE * 0.1));
+    const got = this.synth.read(this.tmpL, this.tmpR, Math.min(need, this.tmpL.length));
+    if (got < need) this.underruns++;
+    for (let i = 0; i < n; i++) {
+      const p = i * step, k = p | 0, f = p - k;
+      if (k + 1 < got) { outL[i] = this.tmpL[k] + (this.tmpL[k + 1] - this.tmpL[k]) * f; outR[i] = this.tmpR[k] + (this.tmpR[k + 1] - this.tmpR[k]) * f; this.lastL = outL[i]; this.lastR = outR[i]; }
+      else { this.lastL *= 0.995; this.lastR *= 0.995; outL[i] = this.lastL; outR[i] = this.lastR; } // sin datos: atenuar sin chasquido
+    }
+  }
+  setVolume(v) { this.volume = v; if (this.gain) this.gain.gain.value = this.muted ? 0 : v; }
+  setMuted(m) { this.muted = m; if (this.gain) this.gain.gain.value = m ? 0 : this.volume; }
+  suspend() { this.ctx?.suspend(); }
+  resume() { this.ctx?.resume(); }
+}
+
+return { AudioOutput };
+})();
+// ---- src/ui/controls.js
+__mod["src/ui/controls.js"] = (() => {
+/**
+ * Controles: teclado (configurable, guardado en localStorage) y botones táctiles/ratón en pantalla.
+ */
+const { KEYS } = __mod["src/hardware/keypad.js"];
+const BUTTONS = ['UP', 'DOWN', 'LEFT', 'RIGHT', 'A', 'B', 'L', 'R', 'START', 'SELECT'];
+const BUTTON_LABELS = { UP: 'Arriba', DOWN: 'Abajo', LEFT: 'Izquierda', RIGHT: 'Derecha', A: 'A', B: 'B', L: 'L', R: 'R', START: 'Start', SELECT: 'Select' };
+const DEFAULT_MAP = { UP: 'ArrowUp', DOWN: 'ArrowDown', LEFT: 'ArrowLeft', RIGHT: 'ArrowRight', A: 'KeyX', B: 'KeyZ', L: 'KeyA', R: 'KeyS', START: 'Enter', SELECT: 'Backspace' };
+const STORAGE_KEY = 'gba-emulator-keymap';
+
+function loadKeymap() {
+  try { const m = JSON.parse(localStorage.getItem(STORAGE_KEY)); if (m && BUTTONS.every((b) => typeof m[b] === 'string')) return m; } catch { /* sin acceso */ }
+  return { ...DEFAULT_MAP };
+}
+function saveKeymap(map) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(map)); } catch { /* sin acceso */ } }
+
+class Controls {
+  /** @param {import('../hardware/keypad.js').Keypad} keypad */
+  constructor(keypad) {
+    this.keypad = keypad; this.map = loadKeymap(); this.enabled = true; this.capture = null;
+    this.held = new Set();
+    addEventListener('keydown', (e) => this.#key(e, true));
+    addEventListener('keyup', (e) => this.#key(e, false));
+    addEventListener('blur', () => this.releaseAll());
+  }
+  #key(e, down) {
+    if (this.capture && down) { e.preventDefault(); this.capture(e.code); this.capture = null; return; }
+    if (!this.enabled || e.target?.tagName === 'INPUT' || e.target?.tagName === 'SELECT') return;
+    const btn = BUTTONS.find((b) => this.map[b] === e.code);
+    if (!btn) return;
+    e.preventDefault();
+    this.press(btn, down);
+  }
+  press(btn, down) {
+    if (down) this.held.add(btn); else this.held.delete(btn);
+    this.keypad.set(KEYS[btn], down);
+  }
+  releaseAll() { for (const b of [...this.held]) this.press(b, false); }
+  /** Espera la próxima tecla para asignarla al botón indicado. */
+  remap(btn) {
+    return new Promise((resolve) => { this.capture = (code) => { this.map[btn] = code; saveKeymap(this.map); resolve(code); }; });
+  }
+  resetMap() { this.map = { ...DEFAULT_MAP }; saveKeymap(this.map); }
+
+  /** Conecta los botones en pantalla (elementos con data-btn). Admite multitáctil y arrastrar entre botones. */
+  bindTouch(root) {
+    const active = new Map(); // pointerId → botón
+    const btnAt = (x, y) => document.elementFromPoint(x, y)?.closest?.('[data-btn]')?.dataset.btn ?? null;
+    const set = (id, btn) => {
+      const prev = active.get(id);
+      if (prev === btn) return;
+      if (prev) { this.press(prev, false); root.querySelector(`[data-btn="${prev}"]`)?.classList.remove('down'); }
+      if (btn) { this.press(btn, true); root.querySelector(`[data-btn="${btn}"]`)?.classList.add('down'); active.set(id, btn); } else active.delete(id);
+    };
+    root.addEventListener('pointerdown', (e) => { const b = btnAt(e.clientX, e.clientY); if (!b) return; e.preventDefault(); root.setPointerCapture?.(e.pointerId); set(e.pointerId, b); });
+    root.addEventListener('pointermove', (e) => { if (active.has(e.pointerId)) set(e.pointerId, btnAt(e.clientX, e.clientY)); });
+    for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) root.addEventListener(ev, (e) => set(e.pointerId, null));
+    root.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+}
+
+return { BUTTONS, BUTTON_LABELS, DEFAULT_MAP, loadKeymap, saveKeymap, Controls };
+})();
+// ---- src/storage/saveManager.js
+__mod["src/storage/saveManager.js"] = (() => {
+/**
+ * Persistencia local (IndexedDB, sin servidores).
+ *  - "saves": memoria de guardado del cartucho (lo que el juego escribe al guardar). Clave por juego + CRC32.
+ *  - "states": estados rápidos del emulador (instantáneas completas), separados del guardado del juego.
+ * La ROM nunca se almacena.
+ */
+const DB_NAME = 'gba-emulator', DB_VERSION = 1;
+
+function openDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains('saves')) db.createObjectStore('saves');
+      if (!db.objectStoreNames.contains('states')) db.createObjectStore('states');
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function tx(store, mode, fn) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const t = db.transaction(store, mode);
+    const req = fn(t.objectStore(store));
+    t.oncomplete = () => resolve(req?.result);
+    t.onerror = () => reject(t.error);
+  });
+}
+
+class SaveManager {
+  /** @param {string} key identificador del juego (código + CRC32 de la ROM) */
+  constructor(key, saveMemory, { onStatus } = {}) {
+    this.key = key; this.mem = saveMemory; this.onStatus = onStatus ?? (() => {});
+    this.timer = null; this.lastWrite = 0;
+  }
+  async load() {
+    if (!this.mem) return false;
+    const rec = await tx('saves', 'readonly', (s) => s.get(this.key));
+    if (rec?.data && rec.data.length === this.mem.data.length && rec.type === this.mem.type) {
+      this.mem.data.set(rec.data); this.mem.dirty = false;
+      this.onStatus(`Partida guardada recuperada (${new Date(rec.updated).toLocaleString()})`);
+      return true;
+    }
+    return false;
+  }
+  async persist() {
+    if (!this.mem) return;
+    this.mem.dirty = false;
+    await tx('saves', 'readwrite', (s) => s.put({ type: this.mem.type, data: this.mem.data.slice(), updated: Date.now() }, this.key));
+    this.onStatus('Partida guardada en el navegador');
+  }
+  /** Comprobar periódicamente: guarda cuando el juego deja de escribir durante 500 ms. */
+  tick() {
+    if (!this.mem?.dirty) return;
+    const now = performance.now();
+    if (!this.lastWrite) this.lastWrite = now;
+    if (now - this.lastWrite > 500) { this.lastWrite = 0; this.persist(); }
+  }
+  /** Archivo .sav compatible (volcado en bruto de la memoria de guardado). */
+  exportBlob() { return new Blob([this.mem.data], { type: 'application/octet-stream' }); }
+  async import(bytes) {
+    if (!this.mem) throw new Error('Este juego no usa memoria de guardado.');
+    if (bytes.length !== this.mem.data.length) throw new Error(`Tamaño incompatible: el archivo mide ${bytes.length} bytes y la memoria de este juego ${this.mem.data.length}.`);
+    this.mem.data.set(bytes);
+    await this.persist();
+  }
+  async saveState(slot, state) { await tx('states', 'readwrite', (s) => s.put({ state, updated: Date.now() }, `${this.key}#${slot}`)); }
+  async loadState(slot) { return (await tx('states', 'readonly', (s) => s.get(`${this.key}#${slot}`)))?.state ?? null; }
+}
+
+return { SaveManager };
+})();
+// ---- src/storage/saveState.js
+__mod["src/storage/saveState.js"] = (() => {
+/**
+ * Estados rápidos: instantánea completa del hardware emulado (CPU, memorias, E/S, timers, DMA,
+ * PPU, APU, memoria de guardado, RTC y puerto serie). Los arrays se copian para que el estado no
+ * cambie al seguir ejecutando. Es independiente del guardado normal del juego.
+ */
+const STATE_VERSION = 1;
+const copyObj = (o) => JSON.parse(JSON.stringify(o));
+
+function captureState(gba) {
+  const { cpu, bus, io, irq, timers, dma, ppu, apu, synth, keypad, serial } = gba;
+  return {
+    version: STATE_VERSION, game: gba.info?.gameCode,
+    cpu: { r: cpu.r.slice(), bankR13: cpu.bankR13.slice(), bankR14: cpu.bankR14.slice(), bankSpsr: cpu.bankSpsr.slice(), fiqR: cpu.fiqR.slice(), usrR: cpu.usrR.slice(),
+      flags: [cpu.n, cpu.z, cpu.c, cpu.v, cpu.i, cpu.f, cpu.t, cpu.mode], next: cpu.next, cycles: cpu.cycles, inIntrWait: !!cpu.inIntrWait },
+    mem: { ewram: bus.ewram.slice(), iwram: bus.iwram.slice(), pal: bus.pal.slice(), vram: bus.vram.slice(), oam: bus.oam.slice(), waitcnt: bus.waitcnt, openBus: bus.openBus, biosLatch: bus.biosLatch },
+    io: { regs: io.regs.slice(), postflg: io.postflg },
+    irq: { ie: irq.ie, if: irq.if, ime: irq.ime, halted: irq.halted, stopped: irq.stopped },
+    timers: { t: copyObj(timers.t), lastCycle: timers.lastCycle },
+    dma: copyObj(dma.ch),
+    keypad: { keycnt: keypad.keycnt },
+    ppu: { dispstat: ppu.dispstat, vcount: ppu.vcount, refX: ppu.refX.slice(), refY: ppu.refY.slice() },
+    apu: { regs: apu.regs.slice(), fifo: apu.fifo.map((f) => f.slice()), fifoR: [...apu.fifoR], fifoW: [...apu.fifoW], fifoN: [...apu.fifoN], current: [...apu.current] },
+    synth: { ch: copyObj(synth.ch), wave: synth.wave.slice(), direct: [...synth.direct], seqStep: synth.seqStep },
+    save: bus.save ? { data: bus.save.data.slice(), bank: bus.save.bank ?? 0 } : null,
+    rtc: gba.rtc ? { offsetMs: gba.rtc.offsetMs, status: gba.rtc.status } : null,
+    serial: { rcnt: serial.rcnt, siocnt: serial.siocnt },
+  };
+}
+
+function restoreState(gba, s) {
+  if (!s || s.version !== STATE_VERSION) throw new Error('Estado incompatible con esta versión del emulador.');
+  if (gba.info && s.game !== gba.info.gameCode) throw new Error(`El estado es de otro juego (${s.game}).`);
+  const { cpu, bus, io, irq, timers, dma, ppu, apu, synth, keypad, serial } = gba;
+  cpu.r.set(s.cpu.r); cpu.bankR13.set(s.cpu.bankR13); cpu.bankR14.set(s.cpu.bankR14); cpu.bankSpsr.set(s.cpu.bankSpsr); cpu.fiqR.set(s.cpu.fiqR); cpu.usrR.set(s.cpu.usrR);
+  [cpu.n, cpu.z, cpu.c, cpu.v, cpu.i, cpu.f, cpu.t, cpu.mode] = s.cpu.flags;
+  cpu.next = s.cpu.next; cpu.cycles = s.cpu.cycles; cpu.inIntrWait = s.cpu.inIntrWait;
+  for (const k of ['ewram', 'iwram', 'pal', 'vram', 'oam']) bus[k].set(s.mem[k]);
+  bus.setWaitcnt(s.mem.waitcnt); bus.openBus = s.mem.openBus; bus.biosLatch = s.mem.biosLatch;
+  io.regs.set(s.io.regs); io.postflg = s.io.postflg;
+  Object.assign(irq, s.irq);
+  s.timers.t.forEach((t, i) => Object.assign(timers.t[i], t)); timers.lastCycle = s.timers.lastCycle;
+  s.dma.forEach((c, i) => Object.assign(dma.ch[i], c));
+  keypad.keycnt = s.keypad.keycnt;
+  ppu.dispstat = s.ppu.dispstat; ppu.vcount = s.ppu.vcount; ppu.refX.set(s.ppu.refX); ppu.refY.set(s.ppu.refY);
+  apu.regs.set(s.apu.regs); s.apu.fifo.forEach((f, k) => apu.fifo[k].set(f));
+  apu.fifoR = [...s.apu.fifoR]; apu.fifoW = [...s.apu.fifoW]; apu.fifoN = [...s.apu.fifoN]; apu.current = [...s.apu.current];
+  s.synth.ch.forEach((c, i) => Object.assign(synth.ch[i], c)); synth.wave.set(s.synth.wave); synth.direct = [...s.synth.direct]; synth.seqStep = s.synth.seqStep;
+  if (s.save && bus.save) { bus.save.data.set(s.save.data); if ('bank' in bus.save) bus.save.bank = s.save.bank; }
+  if (s.rtc && gba.rtc) { gba.rtc.offsetMs = s.rtc.offsetMs; gba.rtc.status = s.rtc.status; }
+  serial.rcnt = s.serial.rcnt; serial.siocnt = s.serial.siocnt; serial.pending = 0;
+}
+
+return { STATE_VERSION, captureState, restoreState };
+})();
+// ---- src/debug/logger.js
+__mod["src/debug/logger.js"] = (() => {
+/** Registro de eventos del emulador (cargador, CPU, BIOS, E/S) con límite de tamaño y contadores. */
+class Logger {
+  constructor(limit = 500) { this.entries = []; this.limit = limit; this.counts = new Map(); this.listeners = new Set(); }
+  log(level, message) {
+    const key = `${level}|${message}`;
+    const n = (this.counts.get(key) || 0) + 1;
+    this.counts.set(key, n);
+    if (n > 3) return; // los mensajes repetidos solo se cuentan
+    const e = { time: new Date().toISOString().slice(11, 19), level, message };
+    this.entries.push(e);
+    if (this.entries.length > this.limit) this.entries.shift();
+    for (const l of this.listeners) l(e);
+  }
+  clear() { this.entries = []; this.counts.clear(); }
+}
+
+return { Logger };
+})();
+// ---- src/debug/debugger.js
+__mod["src/debug/debugger.js"] = (() => {
+/**
+ * Panel de desarrollador: registros de la CPU, E/S de vídeo, DMA, timers, interrupciones, llamadas a
+ * la BIOS, memoria, registro de instrucciones y capas de vídeo. Solo lee el estado (salvo las capas).
+ */
+const h = (v, n = 8) => (v >>> 0).toString(16).toUpperCase().padStart(n, '0');
+const MODES = { 0x10: 'USR', 0x11: 'FIQ', 0x12: 'IRQ', 0x13: 'SVC', 0x17: 'ABT', 0x1b: 'UND', 0x1f: 'SYS' };
+
+class Debugger {
+  constructor(gba, el, logger) {
+    this.gba = gba; this.el = el; this.logger = logger;
+    this.memAddr = 0x02000000; this.traceOn = false; this.trace = []; this.fps = 0;
+  }
+  setTrace(on) {
+    this.traceOn = on;
+    this.gba.cpu.trace = on ? (pc, op, t) => { this.trace.push([pc, op, t]); if (this.trace.length > 64) this.trace.shift(); } : null;
+  }
+  render() {
+    const { cpu, io, irq, dma, timers, ppu, bios } = this.gba;
+    const r = io.regs;
+    const regs = Array.from({ length: 16 }, (_, k) => `r${k.toString().padEnd(2)} ${h(k === 15 ? cpu.next : cpu.r[k])}`);
+    const flags = `${cpu.n ? 'N' : '-'}${cpu.z ? 'Z' : '-'}${cpu.c ? 'C' : '-'}${cpu.v ? 'V' : '-'} ${cpu.i ? 'I' : '-'}${cpu.f ? 'F' : '-'}${cpu.t ? 'T' : '-'}`;
+    const mem = [];
+    for (let row = 0; row < 8; row++) {
+      const a = (this.memAddr + row * 16) >>> 0;
+      const bytes = []; for (let k = 0; k < 16; k++) bytes.push(h(this.gba.bus.read8(a + k), 2));
+      mem.push(`${h(a)}  ${bytes.join(' ')}`);
+    }
+    this.el.querySelector('[data-dbg=cpu]').textContent =
+      `${regs.slice(0, 8).map((x, i) => `${x}   ${regs[i + 8]}`).join('\n')}\nCPSR ${h(cpu.cpsr)} ${flags} ${MODES[cpu.mode] ?? '?'}  ${cpu.t ? 'Thumb' : 'ARM'}\nciclos ${cpu.cycles}  HALT ${irq.halted ? 'sí' : 'no'}  FPS ${this.fps.toFixed(1)}`;
+    this.el.querySelector('[data-dbg=video]').textContent =
+      `DISPCNT ${h(r[0], 4)}  modo ${r[0] & 7}  DISPSTAT ${h(ppu.dispstat, 4)}  VCOUNT ${ppu.vcount}\n` +
+      [0, 1, 2, 3].map((b) => `BG${b}CNT ${h(r[4 + b], 4)}  HOFS ${r[8 + b * 2] & 0x1ff} VOFS ${r[9 + b * 2] & 0x1ff}`).join('\n') +
+      `\nWININ ${h(r[0x24], 4)} WINOUT ${h(r[0x25], 4)}  BLDCNT ${h(r[0x28], 4)} BLDALPHA ${h(r[0x29], 4)} BLDY ${r[0x2a] & 31}`;
+    this.el.querySelector('[data-dbg=hw]').textContent =
+      `IE ${h(irq.ie, 4)}  IF ${h(irq.if, 4)}  IME ${irq.ime}\nIRQ recibidas: ${['VBl', 'HBl', 'VCt', 'T0', 'T1', 'T2', 'T3', 'SIO', 'D0', 'D1', 'D2', 'D3', 'Key', 'Pak'].map((n, i) => `${n}:${irq.counts[i]}`).join(' ')}\n` +
+      dma.ch.map((c, i) => `DMA${i} ${c.active ? 'activa' : '------'} ctl ${h(c.control, 4)} ${h(c.src)}→${h(c.dst)} n=${c.count}`).join('\n') + '\n' +
+      timers.t.map((t, i) => `TM${i} ${t.enabled ? 'on ' : 'off'} cnt ${h(t.counter, 4)} rel ${h(t.reload, 4)} ctl ${h(t.control, 2)}${t.cascade ? ' cascada' : ''}`).join('\n') +
+      `\nSWI: ${[...bios.calls].map((n, i) => (n ? `${h(i, 2)}×${n}` : null)).filter(Boolean).join(' ')}`;
+    this.el.querySelector('[data-dbg=mem]').textContent = mem.join('\n');
+    this.el.querySelector('[data-dbg=trace]').textContent = this.traceOn
+      ? this.trace.slice().reverse().map(([pc, op, t]) => `${h(pc)}  ${t ? h(op, 4).padStart(8) : h(op)}  ${t ? 'T' : 'A'}`).join('\n')
+      : 'Registro de instrucciones desactivado (reduce la velocidad al activarlo).';
+    this.el.querySelector('[data-dbg=log]').textContent = this.logger.entries.slice(-40).reverse().map((e) => `${e.time} [${e.level}] ${e.message}`).join('\n') || 'Sin incidencias.';
+  }
+}
+
+return { Debugger };
+})();
+// ---- src/ui/interface.js
+__mod["src/ui/interface.js"] = (() => {
+/** Interfaz: conecta los elementos del DOM con eventos de la aplicación. Sin lógica de emulación. */
+class Interface {
+  constructor(doc, { BUTTONS, BUTTON_LABELS }) {
+    this.d = doc; this.handlers = {}; this.BUTTONS = BUTTONS; this.LABELS = BUTTON_LABELS; this.devOpen = false;
+    const $ = (id) => doc.getElementById(id);
+    this.$ = $;
+    $('romInput').addEventListener('change', (e) => e.target.files[0] && this.emit('file', e.target.files[0]));
+    const drop = $('dropZone');
+    for (const t of [drop, $('screenWrap')]) {
+      t.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
+      t.addEventListener('dragleave', () => drop.classList.remove('over'));
+      t.addEventListener('drop', (e) => { e.preventDefault(); drop.classList.remove('over'); e.dataTransfer.files[0] && this.emit('file', e.dataTransfer.files[0]); });
+    }
+    $('btnToggle').addEventListener('click', () => this.emit('toggle'));
+    $('btnReset').addEventListener('click', () => this.emit('reset'));
+    $('btnFull').addEventListener('click', () => this.emit('fullscreen'));
+    $('volume').addEventListener('input', (e) => this.emit('volume', +e.target.value));
+    $('mute').addEventListener('change', (e) => this.emit('mute', e.target.checked));
+    $('speed').addEventListener('change', (e) => this.emit('speed', +e.target.value));
+    $('btnExport').addEventListener('click', () => this.emit('exportSave'));
+    $('importInput').addEventListener('change', (e) => { e.target.files[0] && this.emit('importSave', e.target.files[0]); e.target.value = ''; });
+    $('btnSaveState').addEventListener('click', () => this.emit('saveState', +$('slot').value));
+    $('btnLoadState').addEventListener('click', () => this.emit('loadState', +$('slot').value));
+    $('btnResetKeys').addEventListener('click', () => this.emit('resetKeys'));
+    $('btnDev').addEventListener('click', () => { this.devOpen = !this.devOpen; $('devPanel').hidden = !this.devOpen; this.emit('dev', this.devOpen); });
+    $('traceOn').addEventListener('change', (e) => this.emit('trace', e.target.checked));
+    $('memGo').addEventListener('click', () => { const v = parseInt($('memAddr').value.replace(/^0x/i, ''), 16); if (Number.isFinite(v)) this.emit('memAddr', v); });
+    doc.querySelectorAll('[data-layer]').forEach((c) => c.addEventListener('change', () => {
+      let m = 0; doc.querySelectorAll('[data-layer]').forEach((x) => { if (x.checked) m |= 1 << +x.dataset.layer; }); this.emit('layers', m);
+    }));
+    addEventListener('keydown', (e) => { if (e.code === 'F2') { e.preventDefault(); $('btnDev').click(); } });
+  }
+  on(ev, fn) { this.handlers[ev] = fn; }
+  emit(ev, ...a) { this.handlers[ev]?.(...a); }
+  status(msg, error = false) { const s = this.$('status'); s.textContent = msg; s.classList.toggle('error', error); }
+  fps(v) { this.$('fps').textContent = `${v.toFixed(0)} FPS`; }
+  setRunning(on) {
+    this.$('btnToggle').textContent = on ? 'Pausar' : 'Iniciar';
+    this.$('btnToggle').disabled = false; this.$('btnReset').disabled = false;
+    this.d.body.classList.toggle('running', on);
+  }
+  romInfo(info, m4a) {
+    this.$('romMeta').innerHTML = `<b>${esc(info.title)}</b> · ${esc(info.gameCode)} · ${(info.size / 1048576).toFixed(0)} MiB · cabecera ${info.checksumOk ? 'válida' : '<span class="bad">con errores</span>'} · guardado ${esc(info.saveId ?? 'ninguno')}${info.rtc ? ' · RTC' : ''}${m4a ? '' : ' · <span class="bad">sin plantilla m4a</span>'}`;
+    this.d.body.classList.add('loaded');
+  }
+  showKeymap(map) {
+    const list = this.$('keymap');
+    list.innerHTML = '';
+    for (const b of this.BUTTONS) {
+      const row = this.d.createElement('button');
+      row.className = 'keyrow'; row.type = 'button';
+      row.innerHTML = `<span>${this.LABELS[b]}</span><kbd>${esc(map[b].replace(/^Key|^Digit/, ''))}</kbd>`;
+      row.addEventListener('click', () => { row.querySelector('kbd').textContent = '…'; this.emit('remap', b); });
+      list.appendChild(row);
+    }
+  }
+  download(blob, name) {
+    const a = this.d.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+}
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+return { Interface };
+})();
+// ---- src/main.js
+__mod["src/main.js"] = (() => {
+/**
+ * Arranque de la aplicación web: cargador de ROM (File API, todo en local), bucle de emulación con
+ * requestAnimationFrame, salida de vídeo en Canvas 240×160 y conexión de audio, controles y guardado.
+ */
+const { GBA, CYCLES_PER_FRAME, CPU_HZ } = __mod["src/emulator.js"];
+const { RomError, crc32 } = __mod["src/cartridge/romLoader.js"];
+const { AudioOutput } = __mod["src/audio/webAudio.js"];
+const { Controls, BUTTONS, BUTTON_LABELS } = __mod["src/ui/controls.js"];
+const { SaveManager } = __mod["src/storage/saveManager.js"];
+const { captureState, restoreState } = __mod["src/storage/saveState.js"];
+const { Logger } = __mod["src/debug/logger.js"];
+const { Debugger } = __mod["src/debug/debugger.js"];
+const { Interface } = __mod["src/ui/interface.js"];
+const FRAME_MS = 1000 / (CPU_HZ / CYCLES_PER_FRAME); // ≈ 16,743 ms (59,73 Hz)
+
+const logger = new Logger();
+const gba = new GBA({ log: (lvl, msg) => logger.log(lvl, msg) });
+const audio = new AudioOutput(gba.synth);
+const controls = new Controls(gba.keypad);
+const ui = new Interface(document, { BUTTONS, BUTTON_LABELS });
+const dbg = new Debugger(gba, document.getElementById('devPanel'), logger);
+
+const canvas = document.getElementById('screen');
+const ctx = canvas.getContext('2d', { alpha: false });
+const image = new ImageData(new Uint8ClampedArray(gba.ppu.framebuffer.buffer), 240, 160);
+
+let running = false, loaded = false, saves = null, raf = 0, last = 0, acc = 0, speed = 1;
+let fpsFrames = 0, fpsTime = 0;
+
+function frame(now) {
+  raf = requestAnimationFrame(frame);
+  if (!running) { last = now; return; }
+  acc += Math.min(now - last, 100) * speed; last = now;
+  let n = 0;
+  try {
+    while (acc >= FRAME_MS && n < 4) { gba.runFrame(); acc -= FRAME_MS; n++; fpsFrames++; }
+  } catch (e) {
+    running = false; logger.log('error', `Excepción del emulador: ${e.message}`); ui.status(`Error del emulador: ${e.message}`, true); console.error(e);
+  }
+  if (n) ctx.putImageData(image, 0, 0);
+  saves?.tick();
+  if (now - fpsTime > 1000) { dbg.fps = (fpsFrames * 1000) / (now - fpsTime); fpsFrames = 0; fpsTime = now; ui.fps(dbg.fps); if (ui.devOpen) dbg.render(); }
+}
+
+async function loadFile(file) {
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const info = gba.loadRom(bytes, file.name);
+    const key = `${info.gameCode}-${crc32(bytes).toString(16)}`;
+    saves = new SaveManager(key, gba.bus.save, { onStatus: (m) => ui.status(m) });
+    let restored = false;
+    try { restored = await saves.load(); } catch (e) { logger.log('warn', `No se pudo leer IndexedDB: ${e.message}`); }
+    loaded = true;
+    ui.romInfo(info, gba.bios.m4aTemplate);
+    info.warnings.forEach((w) => logger.log('warn', w));
+    ui.status(`${info.title} (${info.gameCode}) cargado · guardado: ${info.saveType}${info.rtc ? ' · reloj RTC' : ''}${restored ? ' · partida del navegador recuperada' : ''}`);
+    await start();
+  } catch (e) {
+    const msg = e instanceof RomError ? e.message : `No se pudo cargar el archivo: ${e.message}`;
+    logger.log('error', msg); ui.status(msg, true);
+  }
+}
+
+async function start() {
+  if (!loaded) return;
+  try { await audio.start(); } catch (e) { logger.log('warn', `Audio no disponible: ${e.message}`); }
+  running = true; ui.setRunning(true); canvas.focus();
+}
+function pause() { running = false; ui.setRunning(false); audio.suspend(); controls.releaseAll(); }
+
+// ---------------------------------------------------------------- eventos de la interfaz
+ui.on('file', loadFile);
+ui.on('toggle', () => (running ? pause() : start()));
+ui.on('reset', () => { if (!loaded) return; gba.reset(); ui.status('Reiniciado'); });
+ui.on('fullscreen', () => (document.fullscreenElement ? document.exitFullscreen() : document.getElementById('screenWrap').requestFullscreen?.()));
+ui.on('volume', (v) => audio.setVolume(v));
+ui.on('mute', (m) => audio.setMuted(m));
+ui.on('speed', (v) => { speed = v; });
+ui.on('remap', async (btn) => { ui.status(`Pulsa la tecla para ${BUTTON_LABELS[btn]}…`); const code = await controls.remap(btn); ui.showKeymap(controls.map); ui.status(`${BUTTON_LABELS[btn]} → ${code}`); });
+ui.on('resetKeys', () => { controls.resetMap(); ui.showKeymap(controls.map); });
+ui.on('exportSave', () => {
+  if (!saves?.mem) return ui.status('No hay memoria de guardado que exportar.', true);
+  ui.download(saves.exportBlob(), `${gba.info.gameCode}.sav`);
+});
+ui.on('importSave', async (file) => {
+  try { await saves.import(new Uint8Array(await file.arrayBuffer())); gba.reset(); ui.status('Partida importada. El juego se ha reiniciado para leerla.'); }
+  catch (e) { ui.status(e.message, true); }
+});
+ui.on('saveState', async (slot) => { if (!loaded) return; await saves.saveState(slot, captureState(gba)); ui.status(`Estado rápido ${slot} guardado (no sustituye al guardado del juego)`); });
+ui.on('loadState', async (slot) => {
+  if (!loaded) return;
+  try { const s = await saves.loadState(slot); if (!s) return ui.status(`El estado ${slot} está vacío.`, true); restoreState(gba, s); ui.status(`Estado rápido ${slot} cargado`); }
+  catch (e) { ui.status(e.message, true); }
+});
+ui.on('dev', (open) => { if (open) dbg.render(); });
+ui.on('trace', (on) => dbg.setTrace(on));
+ui.on('memAddr', (a) => { dbg.memAddr = a; dbg.render(); });
+ui.on('layers', (mask) => { gba.ppu.layerMask = mask; });
+
+controls.bindTouch(document.getElementById('pad'));
+ui.showKeymap(controls.map);
+document.addEventListener('visibilitychange', () => { if (document.hidden && running) pause(); });
+addEventListener('beforeunload', () => { if (saves?.mem?.dirty) saves.persist(); });
+raf = requestAnimationFrame(frame);
+
+return {  };
+})();
+</script>
+</body>
+</html>

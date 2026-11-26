@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inspector de ROM GBA</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <h1>Inspector de ROM GBA</h1>
+  <label class="file">
+    <input type="file" id="file" accept=".gba,.bin,.agb,application/octet-stream">
+    <span>Seleccionar archivo…</span>
+  </label>
+  <span id="status" class="status">Ningún archivo cargado. Todo se procesa en este navegador: nada se sube.</span>
+  <button id="download" disabled>Descargar informe JSON</button>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button data-tab="summary" class="active">Resumen</button>
+  <button data-tab="regions">Regiones</button>
+  <button data-tab="lz">Recursos LZ77</button>
+  <button data-tab="sprites">Sprites</button>
+  <button data-tab="maps">Mapas</button>
+  <button data-tab="hex">Hex / AnimCmd</button>
+  <button data-tab="log">Registro <span id="logCount" class="badge">0</span></button>
+</nav>
+
+<main>
+  <section id="tab-summary" class="tab active">
+    <div id="drop" class="drop">Arrastra aquí un archivo .gba o usa «Seleccionar archivo…»</div>
+    <div id="summary"></div>
+  </section>
+
+  <section id="tab-regions" class="tab">
+    <p class="hint">Cada columna es un bloque de 4 KiB, coloreado por clase (heurística de entropía; ver docs/FORMATS.md §1.3). Haz clic para abrir el offset en Hex.</p>
+    <canvas id="regionCanvas" class="strip"></canvas>
+    <div id="regionInfo" class="mono"></div>
+    <div id="regionLegend" class="legend"></div>
+    <div id="regionTable"></div>
+  </section>
+
+  <section id="tab-lz" class="tab">
+    <div class="split">
+      <div class="pane list-pane">
+        <div class="toolbar">
+          <select id="lzLevel"><option value="corroborated">Corroborados</option><option value="hypothesis">Hipótesis</option></select>
+          <select id="lzFormat"><option value="">Cualquier formato posible</option><option>tiles-4bpp</option><option>tiles-8bpp</option><option>palette-bgr555</option><option>tilemap-text-bg</option></select>
+          <input id="lzSearch" placeholder="offset o tamaño" size="12">
+        </div>
+        <div id="lzCount" class="hint"></div>
+        <div id="lzList" class="list"></div>
+      </div>
+      <div class="pane">
+        <div id="lzDetail" class="hint">Selecciona un recurso.</div>
+        <div class="toolbar" id="lzControls" hidden>
+          <label>bpp <select id="lzBpp"><option>4</option><option>8</option></select></label>
+          <label>ancho (tiles) <input id="lzWidth" type="number" min="1" max="64" value="8"></label>
+          <label>paleta <select id="lzPalMode">
+            <option value="gray">grises (sin evidencia)</option>
+            <option value="lz">LZ77 en offset…</option>
+            <option value="raw">en bruto en offset…</option>
+          </select></label>
+          <input id="lzPalOffset" placeholder="0x…" size="10">
+          <label>nº paleta <input id="lzPalBank" type="number" min="0" max="15" value="0"></label>
+          <label>zoom <input id="lzZoom" type="number" min="1" max="8" value="3"></label>
+          <button id="lzAsPalette">Ver como paleta</button>
+        </div>
+        <p class="hint" id="lzNote"></p>
+        <div class="canvasbox"><canvas id="lzCanvas"></canvas></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-sprites" class="tab">
+    <div class="toolbar">
+      <label>pareja de tablas <select id="spPair"></select></label>
+      <label>índice <input id="spIndex" type="number" min="0" value="0"></label>
+      <button id="spPrev">◀</button><button id="spNext">▶</button>
+      <label>zoom <input id="spZoom" type="number" min="1" max="8" value="3"></label>
+      <label>animación <select id="spAnimTable"></select></label>
+      <label>secuencia <select id="spSeq"></select></label>
+      <label>ms/fotograma (manual) <input id="spMs" type="number" min="50" max="2000" value="400"></label>
+      <button id="spAnim">Reproducir</button>
+      <span id="spAnimState" class="hint mono"></span>
+      <button id="spExport">Exportar al formato del motor</button>
+    </div>
+    <p class="hint" id="spNote"></p>
+    <div class="row">
+      <div class="canvasbox"><div class="cap">Hoja completa</div><canvas id="spSheet"></canvas></div>
+      <div class="canvasbox"><div class="cap">Fotograma (64×64)</div><canvas id="spFrame"></canvas></div>
+      <div class="canvasbox"><div class="cap">Paleta</div><canvas id="spPal"></canvas></div>
+    </div>
+    <pre id="spInfo" class="mono"></pre>
+  </section>
+
+  <section id="tab-maps" class="tab">
+    <div class="toolbar">
+      <label>layout <select id="mapSel"></select></label>
+      <label>zoom <input id="mapZoom" type="number" min="1" max="4" value="1"></label>
+      <label><input type="checkbox" id="mapGrid"> rejilla de metatiles</label>
+      <button id="mapTiles">Ver tiles del tileset primario</button>
+      <button id="mapExport">Exportar al formato del motor</button>
+    </div>
+    <p class="hint" id="mapNote"></p>
+    <pre id="mapInfo" class="mono"></pre>
+    <div class="canvasbox"><canvas id="mapCanvas"></canvas></div>
+  </section>
+
+  <section id="tab-hex" class="tab">
+    <div class="toolbar">
+      <label>offset <input id="hexOff" value="0x00000000" size="12"></label>
+      <button id="hexGo">Ver</button>
+      <button id="hexAnim">Interpretar como AnimCmd</button>
+    </div>
+    <pre id="hexOut" class="mono hex"></pre>
+    <pre id="animOut" class="mono"></pre>
+  </section>
+
+  <section id="tab-log" class="tab">
+    <p class="hint">Errores y advertencias de interpretación de esta sesión (también van en el informe JSON).</p>
+    <div id="log"></div>
+  </section>
+</main>
+<script type="module" src="app.js"></script>
+</body>
+</html>

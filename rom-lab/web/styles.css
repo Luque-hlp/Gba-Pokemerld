@@ -1,0 +1,50 @@
+:root{--bg:#f6f7f9;--panel:#fff;--fg:#1c2128;--muted:#5d6672;--line:#d6dbe1;--accent:#2f6fde;
+--ok:#1f8a4c;--corr:#2f6fde;--hyp:#b7791f;--rej:#c0392b;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+@media (prefers-color-scheme:dark){:root{--bg:#14171c;--panel:#1c2027;--fg:#e4e8ee;--muted:#9aa4b1;--line:#2e3540;--accent:#6aa0ff;--ok:#4cc38a;--corr:#6aa0ff;--hyp:#e0a94a;--rej:#ff6b5e}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+.top{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+.top h1{font-size:17px;margin:0 8px 0 0}
+.file input{display:none}
+.file span,button{display:inline-block;border:1px solid var(--line);background:var(--panel);color:var(--fg);border-radius:6px;padding:5px 10px;cursor:pointer;font:inherit}
+.file span{background:var(--accent);color:#fff;border-color:var(--accent)}
+button:disabled{opacity:.45;cursor:default}
+button:not(:disabled):hover{border-color:var(--accent)}
+.status{color:var(--muted);flex:1;min-width:200px}
+.tabs{display:flex;gap:2px;padding:0 16px;background:var(--panel);border-bottom:1px solid var(--line);overflow-x:auto}
+.tabs button{border:0;border-bottom:2px solid transparent;border-radius:0;background:none;padding:9px 12px;white-space:nowrap}
+.tabs button.active{border-bottom-color:var(--accent);color:var(--accent)}
+main{padding:16px}
+.tab{display:none}.tab.active{display:block}
+.hint{color:var(--muted);margin:6px 0}
+.mono{font-family:var(--mono);font-size:12.5px;white-space:pre-wrap;word-break:break-all}
+.hex{white-space:pre}
+.drop{border:2px dashed var(--line);border-radius:10px;padding:28px;text-align:center;color:var(--muted);margin-bottom:16px}
+.drop.over{border-color:var(--accent);color:var(--accent)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin-bottom:12px}
+.card h2{font-size:15px;margin:0 0 8px}
+table{border-collapse:collapse;width:100%}
+th,td{text-align:left;padding:4px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:600}
+td.mono{white-space:nowrap}
+.lvl{display:inline-block;font-size:11px;padding:1px 7px;border-radius:10px;border:1px solid currentColor;white-space:nowrap}
+.lvl.confirmed{color:var(--ok)}.lvl.corroborated{color:var(--corr)}.lvl.hypothesis{color:var(--hyp)}.lvl.rejected{color:var(--rej)}
+.badge{background:var(--rej);color:#fff;border-radius:9px;padding:0 6px;font-size:11px}
+.toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:8px}
+input,select{font:inherit;color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:5px;padding:3px 6px}
+input[type=number]{width:64px}
+.split{display:grid;grid-template-columns:minmax(260px,360px) 1fr;gap:16px}
+@media (max-width:760px){.split{grid-template-columns:1fr}}
+.pane{min-width:0}
+.list{max-height:70vh;overflow:auto;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+.list div{padding:4px 8px;border-bottom:1px solid var(--line);cursor:pointer;font-family:var(--mono);font-size:12px}
+.list div:hover,.list div.sel{background:color-mix(in srgb,var(--accent) 14%,transparent)}
+.canvasbox{overflow:auto;max-width:100%;background:repeating-conic-gradient(#8882 0 25%,transparent 0 50%) 0 0/16px 16px;border:1px solid var(--line);border-radius:6px;padding:6px;display:inline-block;vertical-align:top}
+.cap{font-size:12px;color:var(--muted);margin-bottom:4px}
+canvas{image-rendering:pixelated;display:block}
+.strip{width:100%;height:56px;border:1px solid var(--line);border-radius:4px;cursor:crosshair}
+.row{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start}
+.legend{display:flex;flex-wrap:wrap;gap:14px;margin:8px 0;font-size:12px}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:2px;margin-right:4px;vertical-align:-2px}
+.logitem{font-family:var(--mono);font-size:12px;padding:4px 0;border-bottom:1px solid var(--line)}
+.logitem.warn{color:var(--hyp)}.logitem.error{color:var(--rej)}

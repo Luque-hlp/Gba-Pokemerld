@@ -1,0 +1,2092 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inspector de ROM GBA</title>
+<style>
+:root{--bg:#f6f7f9;--panel:#fff;--fg:#1c2128;--muted:#5d6672;--line:#d6dbe1;--accent:#2f6fde;
+--ok:#1f8a4c;--corr:#2f6fde;--hyp:#b7791f;--rej:#c0392b;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+@media (prefers-color-scheme:dark){:root{--bg:#14171c;--panel:#1c2027;--fg:#e4e8ee;--muted:#9aa4b1;--line:#2e3540;--accent:#6aa0ff;--ok:#4cc38a;--corr:#6aa0ff;--hyp:#e0a94a;--rej:#ff6b5e}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+.top{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+.top h1{font-size:17px;margin:0 8px 0 0}
+.file input{display:none}
+.file span,button{display:inline-block;border:1px solid var(--line);background:var(--panel);color:var(--fg);border-radius:6px;padding:5px 10px;cursor:pointer;font:inherit}
+.file span{background:var(--accent);color:#fff;border-color:var(--accent)}
+button:disabled{opacity:.45;cursor:default}
+button:not(:disabled):hover{border-color:var(--accent)}
+.status{color:var(--muted);flex:1;min-width:200px}
+.tabs{display:flex;gap:2px;padding:0 16px;background:var(--panel);border-bottom:1px solid var(--line);overflow-x:auto}
+.tabs button{border:0;border-bottom:2px solid transparent;border-radius:0;background:none;padding:9px 12px;white-space:nowrap}
+.tabs button.active{border-bottom-color:var(--accent);color:var(--accent)}
+main{padding:16px}
+.tab{display:none}.tab.active{display:block}
+.hint{color:var(--muted);margin:6px 0}
+.mono{font-family:var(--mono);font-size:12.5px;white-space:pre-wrap;word-break:break-all}
+.hex{white-space:pre}
+.drop{border:2px dashed var(--line);border-radius:10px;padding:28px;text-align:center;color:var(--muted);margin-bottom:16px}
+.drop.over{border-color:var(--accent);color:var(--accent)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin-bottom:12px}
+.card h2{font-size:15px;margin:0 0 8px}
+table{border-collapse:collapse;width:100%}
+th,td{text-align:left;padding:4px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:600}
+td.mono{white-space:nowrap}
+.lvl{display:inline-block;font-size:11px;padding:1px 7px;border-radius:10px;border:1px solid currentColor;white-space:nowrap}
+.lvl.confirmed{color:var(--ok)}.lvl.corroborated{color:var(--corr)}.lvl.hypothesis{color:var(--hyp)}.lvl.rejected{color:var(--rej)}
+.badge{background:var(--rej);color:#fff;border-radius:9px;padding:0 6px;font-size:11px}
+.toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:8px}
+input,select{font:inherit;color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:5px;padding:3px 6px}
+input[type=number]{width:64px}
+.split{display:grid;grid-template-columns:minmax(260px,360px) 1fr;gap:16px}
+@media (max-width:760px){.split{grid-template-columns:1fr}}
+.pane{min-width:0}
+.list{max-height:70vh;overflow:auto;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+.list div{padding:4px 8px;border-bottom:1px solid var(--line);cursor:pointer;font-family:var(--mono);font-size:12px}
+.list div:hover,.list div.sel{background:color-mix(in srgb,var(--accent) 14%,transparent)}
+.canvasbox{overflow:auto;max-width:100%;background:repeating-conic-gradient(#8882 0 25%,transparent 0 50%) 0 0/16px 16px;border:1px solid var(--line);border-radius:6px;padding:6px;display:inline-block;vertical-align:top}
+.cap{font-size:12px;color:var(--muted);margin-bottom:4px}
+canvas{image-rendering:pixelated;display:block}
+.strip{width:100%;height:56px;border:1px solid var(--line);border-radius:4px;cursor:crosshair}
+.row{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start}
+.legend{display:flex;flex-wrap:wrap;gap:14px;margin:8px 0;font-size:12px}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:2px;margin-right:4px;vertical-align:-2px}
+.logitem{font-family:var(--mono);font-size:12px;padding:4px 0;border-bottom:1px solid var(--line)}
+.logitem.warn{color:var(--hyp)}.logitem.error{color:var(--rej)}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Inspector de ROM GBA</h1>
+  <label class="file">
+    <input type="file" id="file" accept=".gba,.bin,.agb,application/octet-stream">
+    <span>Seleccionar archivo…</span>
+  </label>
+  <span id="status" class="status">Ningún archivo cargado. Todo se procesa en este navegador: nada se sube.</span>
+  <button id="download" disabled>Descargar informe JSON</button>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button data-tab="summary" class="active">Resumen</button>
+  <button data-tab="regions">Regiones</button>
+  <button data-tab="lz">Recursos LZ77</button>
+  <button data-tab="sprites">Sprites</button>
+  <button data-tab="maps">Mapas</button>
+  <button data-tab="hex">Hex / AnimCmd</button>
+  <button data-tab="log">Registro <span id="logCount" class="badge">0</span></button>
+</nav>
+
+<main>
+  <section id="tab-summary" class="tab active">
+    <div id="drop" class="drop">Arrastra aquí un archivo .gba o usa «Seleccionar archivo…»</div>
+    <div id="summary"></div>
+  </section>
+
+  <section id="tab-regions" class="tab">
+    <p class="hint">Cada columna es un bloque de 4 KiB, coloreado por clase (heurística de entropía; ver docs/FORMATS.md §1.3). Haz clic para abrir el offset en Hex.</p>
+    <canvas id="regionCanvas" class="strip"></canvas>
+    <div id="regionInfo" class="mono"></div>
+    <div id="regionLegend" class="legend"></div>
+    <div id="regionTable"></div>
+  </section>
+
+  <section id="tab-lz" class="tab">
+    <div class="split">
+      <div class="pane list-pane">
+        <div class="toolbar">
+          <select id="lzLevel"><option value="corroborated">Corroborados</option><option value="hypothesis">Hipótesis</option></select>
+          <select id="lzFormat"><option value="">Cualquier formato posible</option><option>tiles-4bpp</option><option>tiles-8bpp</option><option>palette-bgr555</option><option>tilemap-text-bg</option></select>
+          <input id="lzSearch" placeholder="offset o tamaño" size="12">
+        </div>
+        <div id="lzCount" class="hint"></div>
+        <div id="lzList" class="list"></div>
+      </div>
+      <div class="pane">
+        <div id="lzDetail" class="hint">Selecciona un recurso.</div>
+        <div class="toolbar" id="lzControls" hidden>
+          <label>bpp <select id="lzBpp"><option>4</option><option>8</option></select></label>
+          <label>ancho (tiles) <input id="lzWidth" type="number" min="1" max="64" value="8"></label>
+          <label>paleta <select id="lzPalMode">
+            <option value="gray">grises (sin evidencia)</option>
+            <option value="lz">LZ77 en offset…</option>
+            <option value="raw">en bruto en offset…</option>
+          </select></label>
+          <input id="lzPalOffset" placeholder="0x…" size="10">
+          <label>nº paleta <input id="lzPalBank" type="number" min="0" max="15" value="0"></label>
+          <label>zoom <input id="lzZoom" type="number" min="1" max="8" value="3"></label>
+          <button id="lzAsPalette">Ver como paleta</button>
+        </div>
+        <p class="hint" id="lzNote"></p>
+        <div class="canvasbox"><canvas id="lzCanvas"></canvas></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-sprites" class="tab">
+    <div class="toolbar">
+      <label>pareja de tablas <select id="spPair"></select></label>
+      <label>índice <input id="spIndex" type="number" min="0" value="0"></label>
+      <button id="spPrev">◀</button><button id="spNext">▶</button>
+      <label>zoom <input id="spZoom" type="number" min="1" max="8" value="3"></label>
+      <label>animación <select id="spAnimTable"></select></label>
+      <label>secuencia <select id="spSeq"></select></label>
+      <label>ms/fotograma (manual) <input id="spMs" type="number" min="50" max="2000" value="400"></label>
+      <button id="spAnim">Reproducir</button>
+      <span id="spAnimState" class="hint mono"></span>
+      <button id="spExport">Exportar al formato del motor</button>
+    </div>
+    <p class="hint" id="spNote"></p>
+    <div class="row">
+      <div class="canvasbox"><div class="cap">Hoja completa</div><canvas id="spSheet"></canvas></div>
+      <div class="canvasbox"><div class="cap">Fotograma (64×64)</div><canvas id="spFrame"></canvas></div>
+      <div class="canvasbox"><div class="cap">Paleta</div><canvas id="spPal"></canvas></div>
+    </div>
+    <pre id="spInfo" class="mono"></pre>
+  </section>
+
+  <section id="tab-maps" class="tab">
+    <div class="toolbar">
+      <label>layout <select id="mapSel"></select></label>
+      <label>zoom <input id="mapZoom" type="number" min="1" max="4" value="1"></label>
+      <label><input type="checkbox" id="mapGrid"> rejilla de metatiles</label>
+      <button id="mapTiles">Ver tiles del tileset primario</button>
+      <button id="mapExport">Exportar al formato del motor</button>
+    </div>
+    <p class="hint" id="mapNote"></p>
+    <pre id="mapInfo" class="mono"></pre>
+    <div class="canvasbox"><canvas id="mapCanvas"></canvas></div>
+  </section>
+
+  <section id="tab-hex" class="tab">
+    <div class="toolbar">
+      <label>offset <input id="hexOff" value="0x00000000" size="12"></label>
+      <button id="hexGo">Ver</button>
+      <button id="hexAnim">Interpretar como AnimCmd</button>
+    </div>
+    <pre id="hexOut" class="mono hex"></pre>
+    <pre id="animOut" class="mono"></pre>
+  </section>
+
+  <section id="tab-log" class="tab">
+    <p class="hint">Errores y advertencias de interpretación de esta sesión (también van en el informe JSON).</p>
+    <div id="log"></div>
+  </section>
+</main>
+<script>
+"use strict";
+const __mod = {};
+// ---- src/core/BinaryReader.js
+__mod["src/core/BinaryReader.js"] = (() => {
+/**
+ * BinaryReader — lectura little-endian con control de límites sobre un Uint8Array.
+ * No copia el buffer y nunca escribe en él (la ROM original es de solo lectura).
+ */
+class BinaryReader {
+  /** @param {Uint8Array} bytes */
+  constructor(bytes) {
+    if (!(bytes instanceof Uint8Array)) throw new TypeError('BinaryReader espera un Uint8Array');
+    this.bytes = bytes;
+    this.view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    this.length = bytes.length;
+  }
+  #check(offset, size) {
+    if (!Number.isInteger(offset) || offset < 0 || offset + size > this.length) {
+      throw new RangeError(`Lectura fuera de límites: 0x${offset.toString(16)} (+${size}) / 0x${this.length.toString(16)}`);
+    }
+  }
+  u8(o) { this.#check(o, 1); return this.bytes[o]; }
+  u16(o) { this.#check(o, 2); return this.view.getUint16(o, true); }
+  u32(o) { this.#check(o, 4); return this.view.getUint32(o, true); }
+  i32(o) { this.#check(o, 4); return this.view.getInt32(o, true); }
+  slice(o, n) { this.#check(o, n); return this.bytes.subarray(o, o + n); }
+  /** ASCII imprimible; los bytes no imprimibles se sustituyen por '.' */
+  ascii(o, n) {
+    let s = '';
+    for (const b of this.slice(o, n)) s += b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : '.';
+    return s;
+  }
+}
+
+const hex = (n, pad = 8) => '0x' + (n >>> 0).toString(16).toUpperCase().padStart(pad, '0');
+
+return { BinaryReader, hex };
+})();
+// ---- src/core/crc32.js
+__mod["src/core/crc32.js"] = (() => {
+/** CRC-32 (IEEE 802.3, polinomio reflejado 0xEDB88320). Implementación propia, sin dependencias. */
+const TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+
+/** @param {Uint8Array} bytes @returns {number} CRC32 sin signo */
+function crc32(bytes) {
+  let c = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++) c = TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+return { crc32 };
+})();
+// ---- src/report/evidence.js
+__mod["src/report/evidence.js"] = (() => {
+/**
+ * Niveles de evidencia usados en TODOS los informes.
+ * Ninguna estructura se presenta como "confirmada" sin una verificación reproducible.
+ */
+const Evidence = Object.freeze({
+  /** Verificado por especificación + comprobación (checksum, campo fijo, flujo válido referenciado por puntero...). */
+  CONFIRMED: 'confirmed',
+  /** Dos o más señales independientes coinciden, pero falta verificación semántica. */
+  CORROBORATED: 'corroborated',
+  /** Una sola señal heurística. Puede ser un falso positivo. */
+  HYPOTHESIS: 'hypothesis',
+  /** Se comprobó y no se cumple. */
+  REJECTED: 'rejected',
+});
+
+/** Construye una afirmación trazable: qué se afirma, con qué nivel y en qué se basa. */
+function claim(statement, level, basis) {
+  if (!Object.values(Evidence).includes(level)) throw new Error(`Nivel de evidencia desconocido: ${level}`);
+  return { statement, level, basis: Array.isArray(basis) ? basis : [basis] };
+}
+
+return { Evidence, claim };
+})();
+// ---- src/analyzer/header.js
+__mod["src/analyzer/header.js"] = (() => {
+/**
+ * Cabecera de cartucho GBA (0x000–0x0BF). Fuente: GBATEK, "GBA Cartridge Header".
+ * Todo lo que aquí se marca como CONFIRMED se verifica por campo fijo o checksum.
+ */
+const { BinaryReader, hex } = __mod["src/core/BinaryReader.js"];
+const { crc32 } = __mod["src/core/crc32.js"];
+const { Evidence, claim } = __mod["src/report/evidence.js"];
+const ROM_BASE = 0x08000000;
+const HEADER_SIZE = 0xc0;
+
+// GBATEK: 4.º carácter del código de juego = idioma/destino
+const DESTINATION = { J: 'Japón', E: 'EE. UU./Inglés', P: 'Europa/Elsewhere', D: 'Alemán', F: 'Francés', I: 'Italiano', S: 'Español' };
+
+/** Checksum de complemento: -(suma de 0xA0..0xBC) - 0x19, 8 bits. */
+function headerComplement(bytes) {
+  let c = 0;
+  for (let i = 0xa0; i <= 0xbc; i++) c -= bytes[i];
+  return (c - 0x19) & 0xff;
+}
+
+/** Decodifica una instrucción ARM B/BL de 32 bits situada en `address`. */
+function decodeArmBranch(word, address) {
+  const isBranch = ((word >>> 25) & 0b111) === 0b101;
+  if (!isBranch) return null;
+  let off = word & 0xffffff;
+  if (off & 0x800000) off -= 0x1000000;
+  return { cond: word >>> 28, link: !!((word >>> 24) & 1), target: (address + 8 + off * 4) >>> 0 };
+}
+
+/** @param {Uint8Array} bytes */
+function parseHeader(bytes) {
+  if (bytes.length < HEADER_SIZE) throw new RangeError(`Archivo demasiado pequeño para cabecera GBA (${bytes.length} < 192)`);
+  const r = new BinaryReader(bytes);
+  const claims = [];
+
+  const entryWord = r.u32(0);
+  const branch = decodeArmBranch(entryWord, ROM_BASE);
+  claims.push(branch && branch.cond === 0xe
+    ? claim(`Punto de entrada: ARM B incondicional a ${hex(branch.target)}`, Evidence.CONFIRMED, 'Decodificación de la instrucción en 0x000')
+    : claim('0x000 no contiene un salto ARM incondicional', Evidence.REJECTED, `Palabra ${hex(entryWord)}`));
+
+  const logo = r.slice(0x04, 156);
+  const logoCrc = crc32(logo);
+
+  const title = r.ascii(0xa0, 12).replace(/\.+$/, '');
+  const gameCode = r.ascii(0xac, 4);
+  const makerCode = r.ascii(0xb0, 2);
+  const fixed96 = r.u8(0xb2);
+  const unitCode = r.u8(0xb3);
+  const deviceType = r.u8(0xb4);
+  const reserved1 = Array.from(r.slice(0xb5, 7));
+  const version = r.u8(0xbc);
+  const complement = r.u8(0xbd);
+  const computed = headerComplement(bytes);
+
+  claims.push(fixed96 === 0x96
+    ? claim('Byte fijo 0xB2 = 0x96', Evidence.CONFIRMED, 'GBATEK: valor obligatorio')
+    : claim(`Byte fijo 0xB2 = ${hex(fixed96, 2)} (esperado 0x96)`, Evidence.REJECTED, 'GBATEK'));
+  claims.push(complement === computed
+    ? claim(`Checksum de cabecera válido (${hex(complement, 2)})`, Evidence.CONFIRMED, 'Recalculado sobre 0xA0–0xBC')
+    : claim(`Checksum de cabecera inválido: almacenado ${hex(complement, 2)}, calculado ${hex(computed, 2)}`, Evidence.REJECTED, 'Recalculado sobre 0xA0–0xBC'));
+  claims.push(claim(`CRC32 del logo (0x004–0x09F): ${hex(logoCrc)}`, Evidence.HYPOTHESIS,
+    'Calculado pero NO comparado con un logo de referencia: el logo es idéntico en todo cartucho licenciado; verificar contra otra ROM legítima'));
+
+  const dest = DESTINATION[gameCode[3]];
+  if (dest) claims.push(claim(`Destino/idioma por código de juego: ${dest}`, Evidence.CONFIRMED, `GBATEK: 4.º carácter '${gameCode[3]}'`));
+
+  return {
+    entryPoint: { word: hex(entryWord), ...(branch ? { target: hex(branch.target), targetFileOffset: hex(branch.target - ROM_BASE) } : {}) },
+    logoCrc32: hex(logoCrc),
+    title, gameCode, makerCode,
+    fixedByte: hex(fixed96, 2), unitCode, deviceType,
+    reservedB5_BB_allZero: reserved1.every((b) => b === 0),
+    softwareVersion: version,
+    complement: { stored: hex(complement, 2), computed: hex(computed, 2), valid: complement === computed },
+    claims,
+  };
+}
+
+return { ROM_BASE, HEADER_SIZE, headerComplement, decodeArmBranch, parseHeader };
+})();
+// ---- src/analyzer/regions.js
+__mod["src/analyzer/regions.js"] = (() => {
+/**
+ * Mapa de regiones por bloques: relleno, entropía de Shannon y fin real de datos.
+ * La clasificación por entropía es HEURÍSTICA: indica densidad de información, no tipo de dato.
+ */
+const { hex } = __mod["src/core/BinaryReader.js"];
+function shannonEntropy(bytes) {
+  const counts = new Uint32Array(256);
+  for (let i = 0; i < bytes.length; i++) counts[bytes[i]]++;
+  let h = 0;
+  for (let i = 0; i < 256; i++) if (counts[i]) { const p = counts[i] / bytes.length; h -= p * Math.log2(p); }
+  return h;
+}
+
+/** Umbrales documentados en docs/FORMATS.md §1.3 */
+function classifyBlock(block) {
+  let ff = 0, zz = 0;
+  for (let i = 0; i < block.length; i++) { if (block[i] === 0xff) ff++; else if (block[i] === 0) zz++; }
+  if (ff === block.length) return { cls: 'fill-FF', entropy: 0 };
+  if (zz === block.length) return { cls: 'fill-00', entropy: 0 };
+  const e = shannonEntropy(block);
+  let cls = 'medium-entropy';
+  if (e < 3.0) cls = 'low-entropy';
+  else if (e > 7.2) cls = 'high-entropy';
+  return { cls, entropy: +e.toFixed(3) };
+}
+
+/** Último byte que no es relleno 0xFF/0x00 al final del archivo. */
+function findDataEnd(bytes) {
+  let i = bytes.length - 1;
+  const pad = bytes[i];
+  if (pad !== 0xff && pad !== 0x00) return { dataEnd: bytes.length, paddingByte: null, paddingSize: 0 };
+  while (i >= 0 && bytes[i] === pad) i--;
+  return { dataEnd: i + 1, paddingByte: hex(pad, 2), paddingSize: bytes.length - (i + 1) };
+}
+
+/**
+ * Agrupa bloques consecutivos de la misma clase en regiones.
+ * @param {Uint8Array} bytes @param {number} [blockSize=4096]
+ */
+function mapRegions(bytes, blockSize = 4096) {
+  const regions = [];
+  const histogram = {};
+  for (let off = 0; off < bytes.length; off += blockSize) {
+    const { cls, entropy } = classifyBlock(bytes.subarray(off, Math.min(off + blockSize, bytes.length)));
+    histogram[cls] = (histogram[cls] || 0) + 1;
+    const last = regions[regions.length - 1];
+    if (last && last.cls === cls) { last.end = Math.min(off + blockSize, bytes.length); last.blocks++; last.entropySum += entropy; }
+    else regions.push({ cls, start: off, end: Math.min(off + blockSize, bytes.length), blocks: 1, entropySum: entropy });
+  }
+  return {
+    blockSize,
+    histogram,
+    regions: regions.map((r) => ({
+      class: r.cls, start: hex(r.start), end: hex(r.end), size: r.end - r.start,
+      meanEntropy: +(r.entropySum / r.blocks).toFixed(3),
+    })),
+  };
+}
+
+return { shannonEntropy, classifyBlock, findDataEnd, mapRegions };
+})();
+// ---- src/analyzer/pointers.js
+__mod["src/analyzer/pointers.js"] = (() => {
+/**
+ * Escáner de punteros. En GBA la ROM se mapea en 0x08000000 (espejos en 0x0A/0x0C, GBATEK).
+ * Un "puntero candidato" es una palabra alineada a 4 cuyo valor cae dentro de la ROM.
+ * Esto es una señal estadística: cualquier dato puede parecer un puntero por azar.
+ */
+const { hex } = __mod["src/core/BinaryReader.js"];
+const { ROM_BASE } = __mod["src/analyzer/header.js"];
+/**
+ * @param {Uint8Array} bytes
+ * @param {object} [opts]
+ * @param {number} [opts.limit] tamaño de datos a escanear (por defecto, todo)
+ * @param {number} [opts.minRun=8] longitud mínima para informar una tabla contigua
+ * @returns {{refs: Map<number, number[]>, stats: object, runs: Array<{start:number,count:number}>}}
+ *   refs: offset destino (en archivo) -> lista de offsets donde aparece el puntero
+ */
+function scanPointers(bytes, opts = {}) {
+  const limit = Math.min(opts.limit ?? bytes.length, bytes.length) & ~3;
+  const minRun = opts.minRun ?? 8;
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const refs = new Map();
+  let total = 0, thumbLike = 0, ewram = 0, iwram = 0, io = 0;
+  const runs = [];
+  let runStart = -1, runCount = 0;
+
+  for (let off = 0; off < limit; off += 4) {
+    const w = dv.getUint32(off, true);
+    const region = w >>> 24;
+    let isRom = false;
+    if (region === 0x08 || region === 0x09) {
+      const target = w - ROM_BASE;
+      if (target < bytes.length) {
+        isRom = true; total++;
+        if (w & 1) thumbLike++;
+        let list = refs.get(target);
+        if (!list) refs.set(target, (list = []));
+        list.push(off);
+      }
+    } else if (region === 0x02 && (w & 0xffffff) < 0x40000) ewram++;
+    else if (region === 0x03 && (w & 0xffffff) < 0x8000) iwram++;
+    else if (region === 0x04 && (w & 0xffffff) < 0x400) io++;
+
+    if (isRom) { if (runStart < 0) runStart = off; runCount++; }
+    else { if (runCount >= minRun) runs.push({ start: runStart, count: runCount }); runStart = -1; runCount = 0; }
+  }
+  if (runCount >= minRun) runs.push({ start: runStart, count: runCount });
+
+  return {
+    refs,
+    runs,
+    stats: {
+      romPointerWords: total,
+      uniqueTargets: refs.size,
+      oddTargets_possibleThumbCode: thumbLike,
+      ewramPointerWords: ewram, iwramPointerWords: iwram, ioRegisterWords: io,
+      contiguousTablesMinRun: minRun, contiguousTables: runs.length,
+    },
+  };
+}
+
+/** Destinos más referenciados (útil para localizar funciones/tablas centrales). */
+function topTargets(refs, n = 25) {
+  return [...refs.entries()].sort((a, b) => b[1].length - a[1].length).slice(0, n)
+    .map(([t, l]) => ({ target: hex(t), references: l.length, thumbBitSet: (t & 1) === 1 }));
+}
+
+return { scanPointers, topTargets };
+})();
+// ---- src/decoders/lz77.js
+__mod["src/decoders/lz77.js"] = (() => {
+/**
+ * LZ77 de la BIOS de GBA (SWI 0x11 LZ77UnCompWram / SWI 0x12 LZ77UnCompVram).
+ *
+ * Formato (fuente: GBATEK, "BIOS Decompression Functions"):
+ *   Cabecera u32 LE:
+ *     bits 0-3  reservado (0)
+ *     bits 4-7  tipo de compresión = 1 (LZ77)  -> el primer byte vale 0x10
+ *     bits 8-31 tamaño descomprimido en bytes
+ *   La fuente debe estar alineada a 4 bytes (la BIOS la lee como palabra).
+ *   Cuerpo: bloques de 1 byte de flags + 8 elementos, del bit 7 al bit 0:
+ *     flag 0 -> 1 byte literal
+ *     flag 1 -> 2 bytes de referencia:
+ *        longitud     = (b0 >> 4) + 3                 (3..18)
+ *        desplazamiento = (((b0 & 0x0F) << 8) | b1) + 1 (1..4096)
+ *        copia byte a byte desde salida[pos - desplazamiento] (se permite solapamiento)
+ *   La descompresión termina al alcanzar el tamaño declarado.
+ *
+ * Nota VRAM: SWI 0x12 escribe en unidades de 16 bits; un desplazamiento de 1 produce
+ * datos incorrectos en VRAM. El decodificador lo informa con `vramUnsafe`, no lo rechaza.
+ */
+
+class LZ77Error extends Error {
+  constructor(message, offset) { super(message); this.name = 'LZ77Error'; this.offset = offset; }
+}
+
+const LZ77_TYPE = 0x10;
+
+/**
+ * Lee la cabecera sin descomprimir.
+ * @param {Uint8Array} src @param {number} [offset=0]
+ * @returns {{type:number, decompressedSize:number}|null} null si el byte de tipo no es 0x10
+ */
+function readLZ77Header(src, offset = 0) {
+  if (offset + 4 > src.length) return null;
+  if (src[offset] !== LZ77_TYPE) return null;
+  const size = src[offset + 1] | (src[offset + 2] << 8) | (src[offset + 3] << 16);
+  return { type: LZ77_TYPE, decompressedSize: size };
+}
+
+/**
+ * Descomprime un flujo LZ77.
+ * @param {Uint8Array} src
+ * @param {number} [offset=0]  posición de la cabecera
+ * @param {object} [opts]
+ * @param {number} [opts.maxSize=0x1000000] tamaño máximo aceptado (protección ante datos corruptos)
+ * @returns {{data:Uint8Array, compressedSize:number, decompressedSize:number, vramUnsafe:boolean, tokens:{literals:number, refs:number}}}
+ * @throws {LZ77Error} si el flujo es inválido
+ */
+function decompressLZ77(src, offset = 0, opts = {}) {
+  const { maxSize = 0x1000000 } = opts;
+  // Una referencia en pos 0 se rechaza por 'disp > op': el primer elemento siempre debe ser literal.
+  const header = readLZ77Header(src, offset);
+  if (!header) throw new LZ77Error('Cabecera LZ77 ausente (el byte de tipo debe ser 0x10)', offset);
+  const size = header.decompressedSize;
+  if (size === 0) throw new LZ77Error('Tamaño descomprimido 0', offset);
+  if (size > maxSize) throw new LZ77Error(`Tamaño descomprimido ${size} > máximo ${maxSize}`, offset);
+
+  const out = new Uint8Array(size);
+  let ip = offset + 4, op = 0, literals = 0, refs = 0, vramUnsafe = false;
+
+  while (op < size) {
+    if (ip >= src.length) throw new LZ77Error('Fin de datos al leer byte de flags', ip);
+    const flags = src[ip++];
+    for (let bit = 7; bit >= 0 && op < size; bit--) {
+      if ((flags >> bit) & 1) {
+        if (ip + 1 >= src.length) throw new LZ77Error('Fin de datos en referencia', ip);
+        const b0 = src[ip++], b1 = src[ip++];
+        const len = (b0 >> 4) + 3;
+        const disp = (((b0 & 0x0f) << 8) | b1) + 1;
+        if (disp > op) throw new LZ77Error(`Referencia anterior al inicio (disp=${disp}, pos=${op})`, ip - 2);
+        if (disp === 1) vramUnsafe = true;
+        if (op + len > size) {
+          // La BIOS se detiene al alcanzar el tamaño; los encoders correctos no generan esto.
+          throw new LZ77Error(`Referencia excede el tamaño declarado (${op}+${len} > ${size})`, ip - 2);
+        }
+        for (let k = 0; k < len; k++, op++) out[op] = out[op - disp];
+        refs++;
+      } else {
+        if (ip >= src.length) throw new LZ77Error('Fin de datos en literal', ip);
+        out[op++] = src[ip++];
+        literals++;
+      }
+    }
+  }
+  return { data: out, compressedSize: ip - offset, decompressedSize: size, vramUnsafe, tokens: { literals, refs } };
+}
+
+/**
+ * Compresor LZ77 compatible con la BIOS. Se usa para GENERAR DATOS DE PRUEBA
+ * independientes de cualquier ROM. Búsqueda voraz, ventana 4096, longitud 3..18.
+ * @param {Uint8Array} input
+ * @param {object} [opts]
+ * @param {boolean} [opts.vramSafe=true] evita desplazamiento 1 (compatible con SWI 0x12)
+ * @returns {Uint8Array} flujo con cabecera, rellenado a múltiplo de 4
+ */
+function compressLZ77(input, opts = {}) {
+  const { vramSafe = true } = opts;
+  if (input.length === 0 || input.length > 0xffffff) throw new RangeError('Tamaño de entrada fuera de rango (1..0xFFFFFF)');
+  const minDisp = vramSafe ? 2 : 1;
+  const out = [LZ77_TYPE, input.length & 0xff, (input.length >> 8) & 0xff, (input.length >> 16) & 0xff];
+  let pos = 0;
+  while (pos < input.length) {
+    const flagIndex = out.length;
+    out.push(0);
+    let flags = 0;
+    for (let bit = 7; bit >= 0 && pos < input.length; bit--) {
+      let bestLen = 0, bestDisp = 0;
+      const maxDisp = Math.min(4096, pos);
+      const maxLen = Math.min(18, input.length - pos);
+      for (let disp = minDisp; disp <= maxDisp; disp++) {
+        let l = 0;
+        while (l < maxLen && input[pos + l] === input[pos + l - disp]) l++;
+        if (l > bestLen) { bestLen = l; bestDisp = disp; if (l === maxLen) break; }
+      }
+      if (bestLen >= 3) {
+        flags |= 1 << bit;
+        const d = bestDisp - 1;
+        out.push(((bestLen - 3) << 4) | (d >> 8), d & 0xff);
+        pos += bestLen;
+      } else {
+        out.push(input[pos++]);
+      }
+    }
+    out[flagIndex] = flags;
+  }
+  while (out.length % 4) out.push(0);
+  return Uint8Array.from(out);
+}
+
+return { LZ77Error, LZ77_TYPE, readLZ77Header, decompressLZ77, compressLZ77 };
+})();
+// ---- src/analyzer/lz77scan.js
+__mod["src/analyzer/lz77scan.js"] = (() => {
+/**
+ * Detección de recursos comprimidos LZ77 por descompresión de prueba.
+ * Criterios (todos documentados en docs/FORMATS.md §2.7):
+ *   C1  offset alineado a 4 (requisito de la BIOS)
+ *   C2  byte de tipo 0x10
+ *   C3  tamaño descomprimido en [minSize, maxSize]
+ *   C4  el flujo se decodifica sin error (sin referencias fuera de rango, sin truncamiento)
+ *   C5  existe al menos un puntero ROM al offset (evidencia independiente)
+ * C1–C4 -> HYPOTHESIS. C1–C5 -> CORROBORATED.
+ * Un candidato no referenciado contenido dentro de otro corroborado se marca REJECTED (solapamiento).
+ */
+const { decompressLZ77, LZ77_TYPE } = __mod["src/decoders/lz77.js"];
+const { Evidence } = __mod["src/report/evidence.js"];
+const { hex } = __mod["src/core/BinaryReader.js"];
+/**
+ * Formatos POSIBLES según el tamaño y contenido descomprimido. Nunca concluyentes.
+ * @param {Uint8Array} data
+ */
+function possibleFormats(data) {
+  const n = data.length, f = [];
+  if (n % 32 === 0) f.push({ format: 'tiles-4bpp', tiles: n / 32 });
+  if (n % 64 === 0) f.push({ format: 'tiles-8bpp', tiles: n / 64 });
+  if (n % 32 === 0 && n <= 512) {
+    let bit15Clear = true;
+    for (let i = 1; i < n; i += 2) if (data[i] & 0x80) { bit15Clear = false; break; }
+    if (bit15Clear) f.push({ format: 'palette-bgr555', palettes16: n / 32 });
+  }
+  if (n % 2 === 0 && [0x800, 0x1000, 0x2000].includes(n)) f.push({ format: 'tilemap-text-bg', entries: n / 2, note: 'tamaño coincide con un screenblock de 32x32, 64x32/32x64 o 64x64' });
+  return f;
+}
+
+function scanLZ77(bytes, refs, opts = {}) {
+  const minSize = opts.minSize ?? 32;
+  const maxSize = opts.maxSize ?? 0x40000; // 256 KiB = EWRAM: destino máximo razonable de SWI 0x11
+  const limit = opts.limit ?? bytes.length;
+  const found = [];
+  let tried = 0, failed = 0;
+  const failReasons = {};
+
+  for (let off = 0; off + 4 <= limit; off += 4) {
+    if (bytes[off] !== LZ77_TYPE) continue;
+    const size = bytes[off + 1] | (bytes[off + 2] << 8) | (bytes[off + 3] << 16);
+    if (size < minSize || size > maxSize) continue;
+    tried++;
+    try {
+      const r = decompressLZ77(bytes, off, { maxSize });
+      const referencedBy = refs?.get(off) ?? [];
+      found.push({
+        offset: off, compressedSize: r.compressedSize, decompressedSize: r.decompressedSize,
+        ratio: +(r.compressedSize / r.decompressedSize).toFixed(3),
+        vramUnsafe: r.vramUnsafe, tokens: r.tokens,
+        references: referencedBy.length, referenceSites: referencedBy.slice(0, 8),
+        level: referencedBy.length > 0 ? Evidence.CORROBORATED : Evidence.HYPOTHESIS,
+        possibleFormats: possibleFormats(r.data),
+      });
+    } catch (e) {
+      failed++;
+      const key = e.message.replace(/\(.*\)/, '').replace(/\d+/g, 'N').trim();
+      failReasons[key] = (failReasons[key] || 0) + 1;
+    }
+  }
+
+  // Rechazo por solapamiento: un candidato sin referencias dentro de los bytes de otro corroborado.
+  const corroborated = found.filter((c) => c.level === Evidence.CORROBORATED).sort((a, b) => a.offset - b.offset);
+  let j = 0;
+  for (const c of found) {
+    if (c.level !== Evidence.HYPOTHESIS) continue;
+    while (j < corroborated.length && corroborated[j].offset + corroborated[j].compressedSize <= c.offset) j++;
+    // búsqueda lineal acotada (los corroborados no se solapan entre sí en datos sanos)
+    for (let k = Math.max(0, j - 2); k < Math.min(corroborated.length, j + 2); k++) {
+      const p = corroborated[k];
+      if (c.offset > p.offset && c.offset < p.offset + p.compressedSize) { c.level = Evidence.REJECTED; c.rejectedBecause = `dentro de ${hex(p.offset)}`; break; }
+    }
+  }
+  return { candidates: found, stats: { headersTried: tried, decodeFailures: failed, failReasons, valid: found.length } };
+}
+
+return { possibleFormats, scanLZ77 };
+})();
+// ---- src/analyzer/tables.js
+__mod["src/analyzer/tables.js"] = (() => {
+/**
+ * Descubrimiento de tablas de estructuras con paso fijo (stride) a partir de evidencia:
+ * secuencias de punteros equiespaciados que apuntan todos a recursos LZ77 válidos.
+ * Para cada tabla se mide qué campos u16 coinciden con el tamaño descomprimido del recurso
+ * apuntado: eso sugiere el layout {ptr, u16 size, ...} sin suponerlo a priori.
+ */
+const { hex } = __mod["src/core/BinaryReader.js"];
+const { Evidence } = __mod["src/report/evidence.js"];
+/**
+ * @param {Uint8Array} bytes
+ * @param {Map<number, object>} lzByOffset offset -> candidato LZ77 (corroborado)
+ * @param {Map<number, number[]>} refs
+ * @param {object} [opts] minEntries (def. 4), strides (def. [4,8,12,16,20,24,28,32])
+ */
+function findStridedTables(bytes, lzByOffset, refs, opts = {}) {
+  const minEntries = opts.minEntries ?? 4;
+  const strides = opts.strides ?? [4, 8, 12, 16, 20, 24, 28, 32];
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+
+  // Posiciones (en archivo) que contienen un puntero a un recurso LZ77 corroborado
+  const sites = new Map(); // site -> target
+  for (const [target] of lzByOffset) for (const s of refs.get(target) ?? []) sites.set(s, target);
+  const sorted = [...sites.keys()].sort((a, b) => a - b);
+  const used = new Set();
+  const tables = [];
+
+  for (const start of sorted) {
+    if (used.has(start)) continue;
+    let best = null;
+    for (const stride of strides) {
+      let n = 0;
+      while (sites.has(start + n * stride)) n++;
+      if (n >= minEntries && (!best || n * 1 > best.n || (n === best.n && stride < best.stride))) best = { stride, n };
+    }
+    if (!best) continue;
+    const all = [];
+    for (let i = 0; i < best.n; i++) { const s = start + i * best.stride; used.add(s); all.push({ site: s, target: sites.get(s) }); }
+
+    // Segmentación: tablas distintas pueden estar contiguas con el mismo paso. Se divide la secuencia
+    // donde cambia de forma sostenida (>= minEntries entradas) la coincidencia del campo u16 de tamaño.
+    for (const entries of segmentBySizeField(dv, all, best.stride, lzByOffset, minEntries)) {
+      if (entries.length >= minEntries) tables.push(describeTable(dv, entries, best.stride, lzByOffset));
+    }
+  }
+  return tables.sort((a, b) => b.entries - a.entries);
+}
+
+/** Campo u16 (offset dentro de la estructura) que más coincide con el tamaño descomprimido. */
+function bestSizeField(dv, entries, stride, lz) {
+  const fields = [];
+  for (let fo = 4; fo + 2 <= stride; fo += 2) {
+    let matches = 0;
+    for (const e of entries) if (dv.getUint16(e.site + fo, true) === lz.get(e.target).decompressedSize) matches++;
+    if (matches > 0) fields.push({ fieldOffset: fo, type: 'u16', matches, of: entries.length });
+  }
+  return fields.sort((a, b) => b.matches - a.matches);
+}
+
+function segmentBySizeField(dv, entries, stride, lz, minEntries) {
+  if (stride < 6) return [entries];
+  const [field] = bestSizeField(dv, entries, stride, lz);
+  if (!field) return [entries];
+  const state = entries.map((e) => dv.getUint16(e.site + field.fieldOffset, true) === lz.get(e.target).decompressedSize);
+  const cuts = [0];
+  let cur = state[0];
+  for (let i = 1; i < state.length; i++) {
+    if (state[i] === cur) continue;
+    // ¿el nuevo estado se mantiene al menos minEntries entradas?
+    let k = i; while (k < state.length && state[k] === state[i]) k++;
+    if (k - i >= minEntries) { cuts.push(i); cur = state[i]; }
+  }
+  cuts.push(entries.length);
+  const segs = [];
+  for (let i = 0; i + 1 < cuts.length; i++) segs.push(entries.slice(cuts[i], cuts[i + 1]));
+  return segs;
+}
+
+function describeTable(dv, entries, stride, lz) {
+  const fieldMatches = bestSizeField(dv, entries, stride, lz);
+  const top = fieldMatches[0];
+  const ratio = top ? top.matches / top.of : 0;
+  const exceptions = top && ratio < 1
+    ? entries.map((e, i) => ({ i, e })).filter(({ e }) => dv.getUint16(e.site + top.fieldOffset, true) !== lz.get(e.target).decompressedSize)
+      .slice(0, 16).map(({ i, e }) => ({ index: i, site: hex(e.site), fieldValue: dv.getUint16(e.site + top.fieldOffset, true), decompressedSize: lz.get(e.target).decompressedSize }))
+    : [];
+  const sizes = {};
+  for (const e of entries) { const z = lz.get(e.target).decompressedSize; sizes[z] = (sizes[z] || 0) + 1; }
+  const uniqueTargets = new Set(entries.map((e) => e.target)).size;
+  return {
+    start: hex(entries[0].site), end: hex(entries.at(-1).site + stride), stride, entries: entries.length, uniqueTargets,
+    decompressedSizeHistogram: sizes,
+    sizeFieldMatches: fieldMatches,
+    sizeFieldExceptions: exceptions,
+    level: ratio >= 0.9 ? Evidence.CORROBORATED : Evidence.HYPOTHESIS,
+    interpretation: ratio >= 0.9
+      ? `Hipótesis de layout: {+0 ptr a LZ77, +${top.fieldOffset} u16 = tamaño descomprimido (${top.matches}/${top.of})${stride > top.fieldOffset + 2 ? ', resto sin interpretar' : ''}}`
+      : `Tabla de ${entries.length} punteros a LZ77 con paso ${stride}; campos restantes sin interpretar`,
+    sample: entries.slice(0, 4).map((e) => ({ site: hex(e.site), target: hex(e.target), decompressedSize: lz.get(e.target).decompressedSize })),
+  };
+}
+
+return { findStridedTables };
+})();
+// ---- src/analyzer/strings.js
+__mod["src/analyzer/strings.js"] = (() => {
+/**
+ * Cadenas ASCII y firmas de bibliotecas.
+ * Firmas de tipo de guardado: GBATEK, "GBA Cart Backup IDs" (cadenas que la biblioteca de Nintendo
+ * incrusta en la ROM: EEPROM_Vnnn, SRAM_Vnnn, SRAM_F_Vnnn, FLASH_Vnnn, FLASH512_Vnnn, FLASH1M_Vnnn).
+ * Nota: los textos del juego de Pokémon NO usan ASCII (tabla de caracteres propia); esta búsqueda
+ * solo encuentra identificadores técnicos.
+ */
+const { hex } = __mod["src/core/BinaryReader.js"];
+const { Evidence, claim } = __mod["src/report/evidence.js"];
+const SAVE_RE = /^(EEPROM_V|SRAM_F_V|SRAM_V|FLASH_V|FLASH512_V|FLASH1M_V)(\d{3})/;
+
+function scanAscii(bytes, opts = {}) {
+  const minLen = opts.minLen ?? 8;
+  const maxReport = opts.maxReport ?? 200;
+  const out = [];
+  let count = 0, start = -1;
+  for (let i = 0; i <= bytes.length; i++) {
+    const b = i < bytes.length ? bytes[i] : 0;
+    const printable = b >= 0x20 && b < 0x7f;
+    if (printable) { if (start < 0) start = i; continue; }
+    if (start >= 0 && i - start >= minLen) {
+      count++;
+      if (out.length < maxReport) out.push({ offset: hex(start), text: String.fromCharCode(...bytes.subarray(start, Math.min(i, start + 80))) });
+    }
+    start = -1;
+  }
+  return { totalStrings: count, minLen, sample: out };
+}
+
+function detectSaveType(bytes) {
+  const hits = [];
+  for (let i = 0; i < bytes.length - 12; i++) {
+    const b = bytes[i];
+    if (b !== 0x45 && b !== 0x53 && b !== 0x46) continue; // E, S, F
+    const s = String.fromCharCode(...bytes.subarray(i, i + 13));
+    const m = SAVE_RE.exec(s);
+    if (m) hits.push({ offset: hex(i), id: m[0] });
+  }
+  const claims = hits.map((h) => claim(`Firma de biblioteca de guardado ${h.id} en ${h.offset}`, Evidence.CONFIRMED, 'GBATEK: Backup IDs'));
+  if (hits.length === 0) claims.push(claim('No se encontró firma de tipo de guardado', Evidence.HYPOTHESIS, 'Búsqueda ASCII completa'));
+  return { hits, claims };
+}
+
+return { scanAscii, detectSaveType };
+})();
+// ---- src/analyzer/analyzeRom.js
+__mod["src/analyzer/analyzeRom.js"] = (() => {
+/**
+ * Orquestador del análisis binario. Entrada: Uint8Array (no se modifica). Salida: objeto JSON-serializable.
+ * Funciona igual en Node y en navegador (sin APIs de Node).
+ */
+const { parseHeader } = __mod["src/analyzer/header.js"];
+const { mapRegions, findDataEnd } = __mod["src/analyzer/regions.js"];
+const { scanPointers, topTargets } = __mod["src/analyzer/pointers.js"];
+const { scanLZ77 } = __mod["src/analyzer/lz77scan.js"];
+const { findStridedTables } = __mod["src/analyzer/tables.js"];
+const { scanAscii, detectSaveType } = __mod["src/analyzer/strings.js"];
+const { crc32 } = __mod["src/core/crc32.js"];
+const { hex } = __mod["src/core/BinaryReader.js"];
+const { Evidence, claim } = __mod["src/report/evidence.js"];
+const REPORT_SCHEMA_VERSION = 1;
+
+/**
+ * @param {Uint8Array} bytes
+ * @param {object} [meta] { fileName, sha1 } (el SHA-1 lo calcula el llamador si dispone de crypto)
+ * @param {(stage:string)=>void} [onProgress]
+ */
+function analyzeRom(bytes, meta = {}, onProgress = () => {}) {
+  const t0 = Date.now();
+  const errors = [];
+  const stage = (name, fn) => {
+    onProgress(name);
+    try { return fn(); } catch (e) { errors.push({ stage: name, message: e.message }); return null; }
+  };
+
+  const crcBefore = crc32(bytes);
+  const size = bytes.length;
+  const pow2 = (size & (size - 1)) === 0;
+  const fileClaims = [
+    claim(`Tamaño ${size} bytes (${(size / 1048576).toFixed(2)} MiB)${pow2 ? ', potencia de 2' : ''}`, Evidence.CONFIRMED, 'Medición directa'),
+    size <= 0x2000000
+      ? claim('Cabe en el espacio de ROM de 32 MiB (0x08000000–0x09FFFFFF)', Evidence.CONFIRMED, 'GBATEK: mapa de memoria')
+      : claim('Excede 32 MiB: no es una ROM GBA estándar', Evidence.REJECTED, 'GBATEK'),
+  ];
+
+  const header = stage('header', () => parseHeader(bytes));
+  const dataEnd = stage('dataEnd', () => findDataEnd(bytes));
+  const regions = stage('regions', () => mapRegions(bytes, 4096));
+  const ptr = stage('pointers', () => scanPointers(bytes, { limit: dataEnd?.dataEnd }));
+  const lz = stage('lz77', () => scanLZ77(bytes, ptr?.refs, { limit: dataEnd?.dataEnd }));
+
+  const corroborated = (lz?.candidates ?? []).filter((c) => c.level === Evidence.CORROBORATED);
+  const lzByOffset = new Map(corroborated.map((c) => [c.offset, c]));
+  const tables = stage('tables', () => findStridedTables(bytes, lzByOffset, ptr.refs));
+  const ascii = stage('ascii', () => scanAscii(bytes.subarray(0, dataEnd?.dataEnd ?? size)));
+  const save = stage('saveType', () => detectSaveType(bytes.subarray(0, dataEnd?.dataEnd ?? size)));
+
+  // Resumen de formatos posibles entre recursos corroborados
+  const formatSummary = {};
+  for (const c of corroborated) for (const f of c.possibleFormats) formatSummary[f.format] = (formatSummary[f.format] || 0) + 1;
+
+  const crcAfter = crc32(bytes);
+  if (crcAfter !== crcBefore) errors.push({ stage: 'integrity', message: 'El buffer cambió durante el análisis' });
+
+  const fmt = (c) => ({ ...c, offset: hex(c.offset), referenceSites: c.referenceSites.map((s) => hex(s)) });
+  return {
+    schemaVersion: REPORT_SCHEMA_VERSION,
+    generatedAt: new Date().toISOString(),
+    durationMs: Date.now() - t0,
+    file: { name: meta.fileName ?? null, size, crc32: hex(crcBefore), sha1: meta.sha1 ?? null, unmodified: crcAfter === crcBefore, claims: fileClaims },
+    header,
+    layout: dataEnd && {
+      dataEnd: hex(dataEnd.dataEnd), paddingByte: dataEnd.paddingByte, paddingSize: dataEnd.paddingSize,
+      usedPercent: +((dataEnd.dataEnd / size) * 100).toFixed(2),
+      claims: [claim(`Datos útiles hasta ${hex(dataEnd.dataEnd)}; el resto es relleno ${dataEnd.paddingByte}`, Evidence.CONFIRMED, 'Recorrido inverso del archivo')],
+    },
+    regions,
+    pointers: ptr && {
+      stats: ptr.stats,
+      topTargets: topTargets(ptr.refs, 25),
+      longestContiguousTables: [...ptr.runs].sort((a, b) => b.count - a.count).slice(0, 40).map((r) => ({ start: hex(r.start), entries: r.count, level: Evidence.HYPOTHESIS })),
+      note: 'Puntero candidato = palabra alineada en 0x08000000..0x08000000+tamaño. Señal estadística; puede haber coincidencias casuales.',
+    },
+    compression: lz && {
+      lz77: {
+        stats: { ...lz.stats,
+          corroborated: corroborated.length,
+          hypothesis: lz.candidates.filter((c) => c.level === Evidence.HYPOTHESIS).length,
+          rejected: lz.candidates.filter((c) => c.level === Evidence.REJECTED).length,
+          corroboratedCompressedBytes: corroborated.reduce((a, c) => a + c.compressedSize, 0),
+          corroboratedDecompressedBytes: corroborated.reduce((a, c) => a + c.decompressedSize, 0) },
+        possibleFormatCounts: formatSummary,
+        corroborated: corroborated.map(fmt),
+        hypothesis: lz.candidates.filter((c) => c.level === Evidence.HYPOTHESIS).slice(0, 300).map(fmt),
+      },
+    },
+    structures: { stridedTables: tables },
+    strings: ascii,
+    saveType: save,
+    errors,
+  };
+}
+
+return { REPORT_SCHEMA_VERSION, analyzeRom };
+})();
+// ---- src/decoders/palette.js
+__mod["src/decoders/palette.js"] = (() => {
+/**
+ * Paletas GBA (BGR555). Fuente: GBATEK, "LCD Color Palettes".
+ * Representación interna: Uint32Array de colores RGBA empaquetados en little-endian (0xAABBGGRR),
+ * listos para escribirse en un Uint32Array sobre ImageData.data.
+ */
+
+/** Escalado 5→8 bits: replica los bits altos en los bajos (convención, no definida por hardware). */
+const c5to8 = (c) => (c << 3) | (c >> 2);
+
+/** @param {number} bgr u16 BGR555 @returns {[number, number, number]} */
+function bgr555ToRgb(bgr) {
+  return [c5to8(bgr & 31), c5to8((bgr >> 5) & 31), c5to8((bgr >> 10) & 31)];
+}
+
+const packRGBA = (r, g, b, a = 255) => ((a << 24) | (b << 16) | (g << 8) | r) >>> 0;
+
+/**
+ * Decodifica `count` colores BGR555 desde `bytes[offset]`.
+ * @returns {{colors: Uint32Array, bit15Set: number}} bit15Set: nº de colores con el bit 15 activo (no usado por el hardware;
+ *   valores altos sugieren que los datos no son una paleta)
+ */
+function decodePalette(bytes, offset = 0, count = 16) {
+  if (offset < 0 || offset + count * 2 > bytes.length) throw new RangeError(`Paleta fuera de límites (0x${offset.toString(16)} + ${count * 2})`);
+  const colors = new Uint32Array(count);
+  let bit15Set = 0;
+  for (let i = 0; i < count; i++) {
+    const v = bytes[offset + i * 2] | (bytes[offset + i * 2 + 1] << 8);
+    if (v & 0x8000) bit15Set++;
+    const [r, g, b] = bgr555ToRgb(v);
+    colors[i] = packRGBA(r, g, b);
+  }
+  return { colors, bit15Set };
+}
+
+/** Paleta de grises de n entradas: visualización neutra cuando NO hay evidencia de qué paleta corresponde. */
+function grayscalePalette(n = 16) {
+  const c = new Uint32Array(n);
+  for (let i = 0; i < n; i++) { const v = Math.round((i * 255) / (n - 1)); c[i] = packRGBA(v, v, v); }
+  return c;
+}
+
+return { c5to8, bgr555ToRgb, packRGBA, decodePalette, grayscalePalette };
+})();
+// ---- src/decoders/tiles.js
+__mod["src/decoders/tiles.js"] = (() => {
+/**
+ * Tiles 8×8 y su disposición en imágenes indexadas. Fuente: GBATEK, "LCD VRAM Character Data".
+ * Una "imagen indexada" es { width, height, pixels: Uint8Array (índice por píxel), paletteBank?: Uint8Array }.
+ */
+
+const TILE_BYTES = { 4: 32, 8: 64 };
+
+/** Número de tiles completos en `byteLength` bytes. */
+const tileCount = (byteLength, bpp) => Math.floor(byteLength / TILE_BYTES[bpp]);
+
+/**
+ * Decodifica un tile a 64 índices (fila a fila).
+ * 4bpp: nibble bajo = píxel izquierdo. 8bpp: 1 byte por píxel.
+ * @param {Uint8Array} bytes @param {number} tileIndex @param {4|8} bpp @param {Uint8Array} [out]
+ */
+function decodeTile(bytes, tileIndex, bpp, out = new Uint8Array(64), baseOffset = 0) {
+  const size = TILE_BYTES[bpp];
+  if (!size) throw new RangeError(`bpp no soportado: ${bpp}`);
+  const o = baseOffset + tileIndex * size;
+  if (o < 0 || o + size > bytes.length) throw new RangeError(`Tile ${tileIndex} fuera de límites`);
+  if (bpp === 4) for (let i = 0; i < 32; i++) { const b = bytes[o + i]; out[i * 2] = b & 15; out[i * 2 + 1] = b >> 4; }
+  else out.set(bytes.subarray(o, o + 64));
+  return out;
+}
+
+/**
+ * Dibuja 64 índices de tile en una imagen indexada con volteos opcionales.
+ * @param {{width:number,pixels:Uint8Array}} img
+ */
+function blitTile(img, tile, px, py, hflip = false, vflip = false, { bank = 0, skipZero = false } = {}) {
+  for (let y = 0; y < 8; y++) {
+    const sy = vflip ? 7 - y : y;
+    const row = (py + y) * img.width + px;
+    for (let x = 0; x < 8; x++) {
+      const v = tile[sy * 8 + (hflip ? 7 - x : x)];
+      if (skipZero && v === 0) continue;
+      img.pixels[row + x] = v;
+      if (img.paletteBank) img.paletteBank[row + x] = bank;
+    }
+  }
+}
+
+/**
+ * Dispone tiles consecutivos en una cuadrícula, fila a fila (equivale al mapeo OBJ 1D de un sprite
+ * de `widthTiles` de ancho). El ancho NO se deduce: lo aporta la estructura que referencia los datos
+ * o el usuario.
+ * @param {Uint8Array} bytes @param {4|8} bpp @param {number} widthTiles
+ * @param {object} [o] firstTile, count
+ */
+function tilesToIndexedImage(bytes, bpp, widthTiles, { firstTile = 0, count } = {}) {
+  if (!Number.isInteger(widthTiles) || widthTiles < 1) throw new RangeError('widthTiles debe ser un entero ≥ 1');
+  const total = tileCount(bytes.length, bpp) - firstTile;
+  const n = Math.max(0, Math.min(count ?? total, total));
+  const heightTiles = Math.max(1, Math.ceil(n / widthTiles));
+  const img = { width: widthTiles * 8, height: heightTiles * 8, pixels: new Uint8Array(widthTiles * 8 * heightTiles * 8), tiles: n };
+  const t = new Uint8Array(64);
+  for (let i = 0; i < n; i++) blitTile(img, decodeTile(bytes, firstTile + i, bpp, t), (i % widthTiles) * 8, Math.floor(i / widthTiles) * 8);
+  return img;
+}
+
+return { TILE_BYTES, tileCount, decodeTile, blitTile, tilesToIndexedImage };
+})();
+// ---- src/decoders/image.js
+__mod["src/decoders/image.js"] = (() => {
+/**
+ * Conversión de imágenes indexadas a RGBA (compatible con Canvas ImageData).
+ * Sin dependencias del DOM: devuelve { width, height, data: Uint8ClampedArray }.
+ */
+
+/**
+ * @param {{width:number,height:number,pixels:Uint8Array,paletteBank?:Uint8Array}} img
+ * @param {Uint32Array} palette colores RGBA empaquetados; con paletteBank, 16 colores por banco
+ * @param {object} [o] transparentZero: índice 0 de cada banco transparente (regla de hardware para OBJ/BG)
+ * @returns {{width:number,height:number,data:Uint8ClampedArray, outOfPalette:number}}
+ */
+function indexedToRGBA(img, palette, { transparentZero = false } = {}) {
+  const data = new Uint8ClampedArray(img.width * img.height * 4);
+  const out = new Uint32Array(data.buffer);
+  let outOfPalette = 0;
+  for (let i = 0; i < img.pixels.length; i++) {
+    const v = img.pixels[i];
+    if (transparentZero && v === 0) continue;
+    const idx = img.paletteBank ? img.paletteBank[i] * 16 + v : v;
+    if (idx >= palette.length) { outOfPalette++; out[i] = 0xffff00ff; continue; } // magenta = error visible
+    out[i] = palette[idx];
+  }
+  return { width: img.width, height: img.height, data, outOfPalette };
+}
+
+/** Recorta una imagen indexada (para separar fotogramas de una hoja de sprites). */
+function cropIndexed(img, x, y, w, h) {
+  const r = { width: w, height: h, pixels: new Uint8Array(w * h) };
+  if (img.paletteBank) r.paletteBank = new Uint8Array(w * h);
+  for (let j = 0; j < h; j++) {
+    const s = (y + j) * img.width + x;
+    r.pixels.set(img.pixels.subarray(s, s + w), j * w);
+    if (img.paletteBank) r.paletteBank.set(img.paletteBank.subarray(s, s + w), j * w);
+  }
+  return r;
+}
+
+return { indexedToRGBA, cropIndexed };
+})();
+// ---- src/decoders/tilemap.js
+__mod["src/decoders/tilemap.js"] = (() => {
+/**
+ * Tilemaps de fondos. Fuente: GBATEK, "LCD VRAM BG Screen Data Format".
+ * Fondo de texto: u16 por entrada = tile (bits 0–9), hflip (10), vflip (11), paleta (12–15).
+ * Fondo afín: u8 por entrada = tile.
+ */
+const { decodeTile, blitTile } = __mod["src/decoders/tiles.js"];
+function parseTextEntry(v) {
+  return { tile: v & 0x3ff, hflip: !!(v & 0x400), vflip: !!(v & 0x800), palette: (v >> 12) & 15 };
+}
+const packTextEntry = ({ tile, hflip = false, vflip = false, palette = 0 }) =>
+  (tile & 0x3ff) | (hflip ? 0x400 : 0) | (vflip ? 0x800 : 0) | ((palette & 15) << 12);
+
+/**
+ * Índice de entrada dentro de los datos de mapa para la celda (x, y) de un fondo de texto de
+ * widthTiles × heightTiles. Los fondos mayores de 32 se componen de screenblocks de 32×32 en orden
+ * de bloque (GBATEK): SB0 arriba-izq, SB1 arriba-der (si ancho 64), SB2/SB3 abajo.
+ */
+function textBgEntryIndex(x, y, widthTiles) {
+  const sbx = x >> 5, sby = y >> 5;
+  const sbPerRow = widthTiles > 32 ? 2 : 1;
+  return (sby * sbPerRow + sbx) * 1024 + (y & 31) * 32 + (x & 31);
+}
+
+/**
+ * Renderiza un fondo de texto a imagen indexada con banco de paleta por píxel.
+ * @param {Uint8Array} tileBytes datos de tiles (charblock)
+ * @param {Uint8Array} mapBytes entradas u16 LE
+ * @param {object} o widthTiles, heightTiles (32|64), bpp (4|8), screenblocks (true = orden GBA; false = filas lineales)
+ */
+function renderTextBg(tileBytes, mapBytes, { widthTiles, heightTiles, bpp = 4, screenblocks = true, onError } = {}) {
+  const img = { width: widthTiles * 8, height: heightTiles * 8, pixels: new Uint8Array(widthTiles * heightTiles * 64), paletteBank: new Uint8Array(widthTiles * heightTiles * 64) };
+  const t = new Uint8Array(64);
+  for (let y = 0; y < heightTiles; y++) for (let x = 0; x < widthTiles; x++) {
+    const idx = screenblocks ? textBgEntryIndex(x, y, widthTiles) : y * widthTiles + x;
+    if (idx * 2 + 1 >= mapBytes.length) { onError?.(`Entrada de mapa ${idx} fuera de datos`); continue; }
+    const e = parseTextEntry(mapBytes[idx * 2] | (mapBytes[idx * 2 + 1] << 8));
+    try { decodeTile(tileBytes, e.tile, bpp, t); } catch { onError?.(`Tile ${e.tile} inexistente en (${x},${y})`); continue; }
+    blitTile(img, t, x * 8, y * 8, e.hflip, e.vflip, { bank: bpp === 4 ? e.palette : 0 });
+  }
+  return img;
+}
+
+/** Fondo afín: entradas u8, siempre 8bpp, sin volteo ni paleta por tile. */
+function renderAffineBg(tileBytes, mapBytes, sizeTiles) {
+  const img = { width: sizeTiles * 8, height: sizeTiles * 8, pixels: new Uint8Array(sizeTiles * sizeTiles * 64) };
+  const t = new Uint8Array(64);
+  for (let i = 0; i < sizeTiles * sizeTiles && i < mapBytes.length; i++) blitTile(img, decodeTile(tileBytes, mapBytes[i], 8, t), (i % sizeTiles) * 8, Math.floor(i / sizeTiles) * 8);
+  return img;
+}
+
+return { parseTextEntry, packTextEntry, textBgEntryIndex, renderTextBg, renderAffineBg };
+})();
+// ---- src/decoders/metatile.js
+__mod["src/decoders/metatile.js"] = (() => {
+/**
+ * Metatiles y mapas de pokeemerald (ESPECÍFICO DEL JUEGO).
+ * Fuentes (descompilación, versión inglesa; verificadas estructuralmente en la ROM con src/structures):
+ *   include/fieldmap.h          NUM_TILES_IN_PRIMARY 512, NUM_METATILES_IN_PRIMARY 512,
+ *                               NUM_PALS_IN_PRIMARY 6, NUM_PALS_TOTAL 13, NUM_TILES_PER_METATILE 8
+ *   include/global.fieldmap.h   celda de mapa u16: metatile bits 0–9, colisión 10–11, elevación 12–15
+ *   src/fieldmap.c              tiles primarios -> VRAM tile 0; secundarios -> tile 512;
+ *                               paletas 0–5 del primario (color 0 forzado a negro), 6–12 del secundario
+ * Metatile = 8 entradas de tilemap de texto (u16): 4 de capa inferior (2×2) + 4 de capa superior (2×2).
+ */
+const { parseTextEntry } = __mod["src/decoders/tilemap.js"];
+const { decodeTile, blitTile } = __mod["src/decoders/tiles.js"];
+const NUM_TILES_IN_PRIMARY = 512;
+const NUM_METATILES_IN_PRIMARY = 512;
+const NUM_PALS_IN_PRIMARY = 6;
+const NUM_PALS_TOTAL = 13;
+
+const parseMapCell = (v) => ({ metatile: v & 0x3ff, collision: (v >> 10) & 3, elevation: (v >> 12) & 15 });
+
+/**
+ * Combina las dos mitades del "VRAM" de un mapa.
+ * @param {{tiles:Uint8Array, metatiles:Uint8Array, palettes:Uint32Array}} primary  palettes: ≥ 6×16 colores
+ * @param {{tiles:Uint8Array, metatiles:Uint8Array, palettes:Uint32Array}} secondary palettes: ≥ 13×16 colores
+ */
+function buildTilesetPair(primary, secondary) {
+  const pal = new Uint32Array(16 * 16);
+  pal.set(primary.palettes.subarray(0, NUM_PALS_IN_PRIMARY * 16), 0);
+  pal[0] = 0xff000000; // src/fieldmap.c: LoadPalette(&black, ...) para el color 0 del primario
+  pal.set(secondary.palettes.subarray(NUM_PALS_IN_PRIMARY * 16, NUM_PALS_TOTAL * 16), NUM_PALS_IN_PRIMARY * 16);
+  return { primary, secondary, palette: pal };
+}
+
+const tileSource = (pair, tile) => tile < NUM_TILES_IN_PRIMARY
+  ? [pair.primary.tiles, tile] : [pair.secondary.tiles, tile - NUM_TILES_IN_PRIMARY];
+
+/** Dibuja el metatile `id` (16×16) en `img` en (px, py). Devuelve los errores encontrados. */
+function drawMetatile(img, pair, id, px, py, errors) {
+  const [mtBytes, local] = id < NUM_METATILES_IN_PRIMARY ? [pair.primary.metatiles, id] : [pair.secondary.metatiles, id - NUM_METATILES_IN_PRIMARY];
+  const base = local * 16;
+  if (base + 16 > mtBytes.length) { errors?.push(`Metatile ${id} fuera de la tabla`); return; }
+  const t = new Uint8Array(64);
+  for (let layer = 0; layer < 2; layer++) for (let k = 0; k < 4; k++) {
+    const o = base + (layer * 4 + k) * 2;
+    const e = parseTextEntry(mtBytes[o] | (mtBytes[o + 1] << 8));
+    const [src, ti] = tileSource(pair, e.tile);
+    try { decodeTile(src, ti, 4, t); } catch { errors?.push(`Tile ${e.tile} inexistente (metatile ${id})`); continue; }
+    // Índice 0 transparente en ambas capas (GBATEK): donde no hay color se ve el backdrop,
+    // que es el color 0 de la paleta 0 (la imagen se inicializa a índice 0 / banco 0).
+    blitTile(img, t, px + (k & 1) * 8, py + (k >> 1) * 8, e.hflip, e.vflip, { bank: e.palette, skipZero: true });
+  }
+}
+
+/** Renderiza un mapa completo (width × height celdas u16). */
+function renderMap(mapBytes, width, height, pair) {
+  const img = { width: width * 16, height: height * 16, pixels: new Uint8Array(width * height * 256), paletteBank: new Uint8Array(width * height * 256) };
+  const errors = [];
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const o = (y * width + x) * 2;
+    if (o + 1 >= mapBytes.length) { errors.push(`Celda (${x},${y}) fuera de datos`); continue; }
+    drawMetatile(img, pair, parseMapCell(mapBytes[o] | (mapBytes[o + 1] << 8)).metatile, x * 16, y * 16, errors);
+  }
+  return { img, errors: [...new Set(errors)] };
+}
+
+return { NUM_TILES_IN_PRIMARY, NUM_METATILES_IN_PRIMARY, NUM_PALS_IN_PRIMARY, NUM_PALS_TOTAL, parseMapCell, buildTilesetPair, drawMetatile, renderMap };
+})();
+// ---- src/decoders/anim.js
+__mod["src/decoders/anim.js"] = (() => {
+/**
+ * Secuencias de animación de sprites de pokeemerald (ESPECÍFICO DEL JUEGO).
+ * Fuente: include/sprite.h — union AnimCmd (4 bytes):
+ *   s16 type: -1 = END, -2 = JUMP(target:6 en bits 16–21), -3 = LOOP(count:6 en bits 16–21);
+ *   otro valor = FRAME: imageValue:16, duration:6, hFlip:1, vFlip:1.
+ */
+const ANIM_END = -1, ANIM_JUMP = -2, ANIM_LOOP = -3;
+
+/** Decodifica comandos hasta END/JUMP o `max` comandos. */
+function parseAnimCmds(bytes, offset, max = 64) {
+  const cmds = [];
+  for (let i = 0; i < max; i++) {
+    const o = offset + i * 4;
+    if (o + 4 > bytes.length) throw new RangeError('Secuencia de animación truncada');
+    const w = (bytes[o] | (bytes[o + 1] << 8) | (bytes[o + 2] << 16) | (bytes[o + 3] << 24)) >>> 0;
+    const type = (w << 16) >> 16; // s16
+    const hi = w >>> 16;
+    if (type === ANIM_END) { cmds.push({ op: 'end' }); return cmds; }
+    if (type === ANIM_JUMP) { cmds.push({ op: 'jump', target: hi & 63 }); return cmds; }
+    if (type === ANIM_LOOP) { cmds.push({ op: 'loop', count: hi & 63 }); continue; }
+    cmds.push({ op: 'frame', image: w & 0xffff, duration: hi & 63, hflip: !!(hi & 64), vflip: !!(hi & 128) });
+  }
+  throw new RangeError(`Sin END/JUMP en ${max} comandos`);
+}
+
+/** Expande comandos a una línea temporal [{image, frames}] (ticks de 1/60 s). Los bucles se desenrollan una vez. */
+function animTimeline(cmds) {
+  return cmds.filter((c) => c.op === 'frame').map((c) => ({ image: c.image, ticks: Math.max(1, c.duration), hflip: c.hflip, vflip: c.vflip }));
+}
+
+return { ANIM_END, parseAnimCmds, animTimeline, ANIM_JUMP, ANIM_LOOP };
+})();
+// ---- src/structures/schemas.js
+__mod["src/structures/schemas.js"] = (() => {
+/**
+ * Estructuras ESPECÍFICAS DEL JUEGO, con su fuente en la descompilación (pret/pokeemerald, tal como
+ * aparece en github.com/marcoscodas/bravely-emerald, commit 949c610). Las direcciones de la descompilación
+ * son de la versión inglesa y NO se usan: cada estructura se localiza en la ROM por su forma y se valida.
+ */
+const { decompressLZ77 } = __mod["src/decoders/lz77.js"];
+const { Evidence } = __mod["src/report/evidence.js"];
+const { hex } = __mod["src/core/BinaryReader.js"];
+const ROM_BASE = 0x08000000;
+
+const SOURCES = {
+  CompressedSpriteSheet: 'include/sprite.h:19 — { const u32 *data; u16 size; u16 tag; } (8 bytes)',
+  CompressedSpritePalette: 'include/sprite.h:42 — { const u32 *data; u16 tag; } (8 bytes con relleno)',
+  SPECIES_SHINY_TAG: 'include/data.h:6 — #define SPECIES_SHINY_TAG 500',
+  NUM_SPECIES_TABLE: 'include/constants/species.h — SPECIES_UNOWN_QMARK = 439 → tablas de 440 entradas',
+  Tileset: 'include/global.fieldmap.h:55 — { bool8 isCompressed; bool8 isSecondary; u16 pad; u32 tiles; u32 palettes; u32 metatiles; u32 metatileAttributes; u32 callback; } (24 bytes)',
+  MapLayout: 'include/global.fieldmap.h:66 — { s32 width; s32 height; u32 border; u32 map; u32 primaryTileset; u32 secondaryTileset; } (24 bytes)',
+  TilesetLoading: 'src/fieldmap.c:903–984 — tiles primarios a tile 0 (512), secundarios a 512; paletas 0–5 primario, 6–12 secundario',
+  MonPicOam: 'src/pokemon.c:2145 — .shape = SPRITE_SHAPE(64x64): los sprites de batalla son OBJ de 64×64',
+};
+
+const view = (b) => new DataView(b.buffer, b.byteOffset, b.byteLength);
+const toOff = (ptr, len) => (ptr >= ROM_BASE && ptr - ROM_BASE < len ? ptr - ROM_BASE : -1);
+const lzSize = (b, o) => { try { return decompressLZ77(b, o, { maxSize: 0x40000 }).decompressedSize; } catch { return 0; } };
+
+/** Lee una tabla de CompressedSpriteSheet/Palette de `count` entradas. */
+function readSpriteTable(bytes, offset, count, kind) {
+  const dv = view(bytes); const out = [];
+  for (let i = 0; i < count; i++) {
+    const o = offset + i * 8;
+    const ptr = dv.getUint32(o, true);
+    out.push(kind === 'sheet'
+      ? { index: i, data: toOff(ptr, bytes.length), size: dv.getUint16(o + 4, true), tag: dv.getUint16(o + 6, true) }
+      : { index: i, data: toOff(ptr, bytes.length), tag: dv.getUint16(o + 4, true) });
+  }
+  return out;
+}
+
+/**
+ * Empareja tablas de hojas de sprites y de paletas mediante su campo `tag` (evidencia independiente del
+ * análisis de punteros). Entrada: las tablas descubiertas por analyzer/tables.js.
+ */
+function pairSpriteTables(bytes, stridedTables) {
+  const tables = stridedTables.filter((t) => t.stride === 8 && t.entries >= 4).map((t) => ({ ...t, startN: parseInt(t.start, 16) }));
+  const sheets = tables.filter((t) => t.level === Evidence.CORROBORATED || /4096|2048/.test(Object.keys(t.decompressedSizeHistogram).join()));
+  const pals = tables.filter((t) => { const k = Object.keys(t.decompressedSizeHistogram); return k.includes('32') && t.decompressedSizeHistogram['32'] / t.entries > 0.9; });
+  const result = [];
+  for (const s of sheets) {
+    const se = readSpriteTable(bytes, s.startN, s.entries, 'sheet');
+    const n = se.length;
+    const identity = se.every((e, i) => e.tag === i); // etiquetas 0..n-1: coincidir con ellas es casi trivial
+    for (const p of pals) {
+      // Regla de tamaño: la zona de paletas tiene exactamente n entradas, o 2n (normal + variocolor).
+      if (p.entries !== n && p.entries !== 2 * n) continue;
+      for (let k = 0; k < p.entries / n; k++) {
+        const pe = readSpriteTable(bytes, p.startN + k * n * 8, n, 'palette');
+        let same = 0, plus500 = 0;
+        for (let i = 0; i < n; i++) { if (se[i].tag === pe[i].tag) same++; else if (pe[i].tag === se[i].tag + 500) plus500++; }
+        if (same !== n && plus500 !== n) continue;
+        const strong = plus500 === n || !identity;
+        result.push({
+          sheetTable: s.start, paletteTable: hex(p.startN + k * n * 8), entries: n,
+          relation: same === n ? (identity ? 'tag idéntico (= índice)' : 'tag idéntico') : 'tag + 500 (SPECIES_SHINY_TAG)',
+          matches: `${n}/${n}`,
+          level: strong ? Evidence.CONFIRMED : Evidence.CORROBORATED,
+          basis: [SOURCES.CompressedSpriteSheet, SOURCES.CompressedSpritePalette,
+            plus500 === n ? SOURCES.SPECIES_SHINY_TAG : identity ? 'Etiquetas = índice y mismo número de entradas (evidencia débil)' : 'Coincidencia de etiquetas no triviales índice a índice'],
+        });
+      }
+    }
+  }
+  return result;
+}
+
+/** Lee y valida un Tileset en `offset`. Devuelve null si no cumple la forma. */
+function readTileset(bytes, offset) {
+  if (offset < 0 || offset + 24 > bytes.length) return null;
+  const dv = view(bytes);
+  const isCompressed = bytes[offset], isSecondary = bytes[offset + 1];
+  if (isCompressed > 1 || isSecondary > 1) return null;
+  const p = [4, 8, 12, 16].map((k) => toOff(dv.getUint32(offset + k, true), bytes.length));
+  if (p.some((x) => x < 0)) return null;
+  const cb = dv.getUint32(offset + 20, true);
+  if (cb !== 0 && (toOff(cb, bytes.length) < 0 || !(cb & 1))) return null; // callback: NULL o función Thumb
+  const tilesLZ = isCompressed ? lzSize(bytes, p[0]) : null;
+  if (isCompressed && !tilesLZ) return null;
+  return { offset, isCompressed: !!isCompressed, isSecondary: !!isSecondary, tiles: p[0], palettes: p[1], metatiles: p[2], metatileAttributes: p[3], callback: cb ? hex(cb) : null, tilesDecompressedSize: tilesLZ };
+}
+
+/**
+ * Busca MapLayouts: dimensiones pequeñas + dos punteros a Tilesets válidos, el primero primario y el
+ * segundo secundario. Esta doble condición es muy improbable por azar.
+ */
+function findMapLayouts(bytes, { limit = bytes.length, maxDim = 256 } = {}) {
+  const dv = view(bytes); const layouts = []; const tilesets = new Map();
+  const ts = (o) => { if (!tilesets.has(o)) tilesets.set(o, readTileset(bytes, o)); return tilesets.get(o); };
+  for (let o = 0; o + 24 <= limit; o += 4) {
+    const w = dv.getInt32(o, true), h = dv.getInt32(o + 4, true);
+    if (w < 1 || h < 1 || w > maxDim || h > maxDim) continue;
+    const border = toOff(dv.getUint32(o + 8, true), bytes.length), map = toOff(dv.getUint32(o + 12, true), bytes.length);
+    if (border < 0 || map < 0 || map + w * h * 2 > bytes.length) continue;
+    const p = toOff(dv.getUint32(o + 16, true), bytes.length), s = toOff(dv.getUint32(o + 20, true), bytes.length);
+    if (p < 0 || s < 0) continue;
+    const tp = ts(p), tsec = ts(s);
+    if (!tp || !tsec || tp.isSecondary || !tsec.isSecondary) continue;
+    layouts.push({ offset: o, width: w, height: h, border, map, primaryTileset: p, secondaryTileset: s });
+  }
+  const used = new Set(layouts.flatMap((l) => [l.primaryTileset, l.secondaryTileset]));
+  return {
+    layouts,
+    tilesets: [...used].sort((a, b) => a - b).map((o) => tilesets.get(o)),
+    level: layouts.length ? Evidence.CORROBORATED : Evidence.HYPOTHESIS,
+    basis: [SOURCES.MapLayout, SOURCES.Tileset, 'Forma + primario.isSecondary = 0 + secundario.isSecondary = 1'],
+  };
+}
+
+/** Prepara los datos de un tileset para el renderizador de metatiles. */
+function loadTilesetData(bytes, ts, decodePalette, { secondary = false, metatileCount } = {}) {
+  const tiles = ts.isCompressed ? decompressLZ77(bytes, ts.tiles, { maxSize: 0x40000 }).data
+    : bytes.subarray(ts.tiles, Math.min(bytes.length, ts.tiles + (secondary ? 512 : 512) * 32)); // sin compresión: el juego copia 512 tiles (fieldmap.c)
+  // Distancia metatiles→atributos = 16 B por metatile (8 u16) si los atributos siguen a los metatiles
+  const count = metatileCount ?? Math.max(0, Math.min(512, (ts.metatileAttributes - ts.metatiles) / 16 | 0));
+  const metatiles = bytes.subarray(ts.metatiles, ts.metatiles + count * 16);
+  const palettes = decodePalette(bytes, ts.palettes, 16 * 16).colors; // array u16[16][16]
+  return { tiles, metatiles, palettes, metatileCount: count };
+}
+
+return { ROM_BASE, SOURCES, readSpriteTable, pairSpriteTables, readTileset, findMapLayouts, loadTilesetData };
+})();
+// ---- src/structures/animations.js
+__mod["src/structures/animations.js"] = (() => {
+/**
+ * Descubrimiento de tablas de animación por FORMA (sin direcciones prefijadas).
+ * Forma tomada de la descompilación (src/data/pokemon_graphics/front_pic_anims.h:4810–4823, 5255):
+ *   const union AnimCmd *const *const tabla[N]   → cada entrada apunta a
+ *   const union AnimCmd *const anims[2 o 3]      → cada elemento apunta a
+ *   union AnimCmd secuencia[]                    → termina en END (-1) o JUMP (-2)
+ * Señales: la tabla es un tramo contiguo de punteros ROM; casi todos sus destinos son arrays cortos
+ * de punteros cuyos destinos se decodifican como AnimCmd válidos (frames con imagen y duración acotadas).
+ */
+const { parseAnimCmds } = __mod["src/decoders/anim.js"];
+const { Evidence } = __mod["src/report/evidence.js"];
+const { hex } = __mod["src/core/BinaryReader.js"];
+const R = 0x08000000;
+const ANIM_SOURCES = {
+  layout: 'src/data/pokemon_graphics/front_pic_anims.h:4810 — SINGLE/DOUBLE_ANIMATION: { sAnim_GeneralFrame0, sAnim_X_1[, sAnim_X_2] }',
+  frame0: 'src/data.c:115 — sAnim_GeneralFrame0 = { ANIMCMD_FRAME(0, 0), ANIMCMD_END }',
+  usage: 'src/pokemon.c:3566 — gMultiuseSpriteTemplate.anims = gMonFrontAnimsPtrTable[species]',
+  timing: 'src/sprite.c:1035–1130 — duración d visible max(d,1) ticks; END mantiene el último fotograma; JUMP/LOOP',
+};
+
+/** ¿Hay una secuencia AnimCmd plausible en `off`? Devuelve los comandos o null. */
+function plausibleAnim(bytes, off, { maxImage = 64, maxCmds = 64 } = {}) {
+  if (off < 0 || off & 3 || off + 8 > bytes.length) return null;
+  let cmds;
+  try { cmds = parseAnimCmds(bytes, off, maxCmds); } catch { return null; }
+  const frames = cmds.filter((c) => c.op === 'frame');
+  if (!frames.length) return null;
+  if (frames.some((f) => f.image > maxImage)) return null;
+  const last = cmds.at(-1);
+  if (last.op === 'jump' && last.target >= cmds.length - 1) return null;
+  return cmds;
+}
+
+/** Lee un array de punteros a secuencias (máx. `max`). Devuelve null si el primero no es válido. */
+function readAnimArray(bytes, off, max = 8) {
+  if (off < 0 || off & 3) return null;
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const seqs = [];
+  for (let i = 0; i < max && off + i * 4 + 4 <= bytes.length; i++) {
+    const p = dv.getUint32(off + i * 4, true) - R;
+    if (p < 0 || p >= bytes.length) break;
+    const cmds = plausibleAnim(bytes, p);
+    if (!cmds) break;
+    seqs.push({ offset: p, cmds });
+  }
+  return seqs.length ? seqs : null;
+}
+
+/**
+ * @param {Uint8Array} bytes
+ * @param {Array<{start:number,count:number}>} runs tramos de punteros contiguos (analyzer/pointers.js)
+ * @param {object} [o] minEntries (def. 8), minValidRatio (def. 0.95)
+ */
+function findAnimTables(bytes, runs, { minEntries = 8 } = {}) {
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const out = [];
+  for (const run of runs) {
+    if (run.count < minEntries) continue;
+    // Un tramo de punteros puede contener la tabla principal Y los arrays a los que apunta (contiguos
+    // en la ROM). Se buscan sub-tramos cuyas entradas apuntan a arrays de secuencias AnimCmd.
+    const ok = [];
+    for (let i = 0; i < run.count; i++) ok.push(!!readAnimArray(bytes, dv.getUint32(run.start + i * 4, true) - R, 1));
+    for (let i = 0; i < run.count;) {
+      if (!ok[i]) { i++; continue; }
+      let j = i; while (j < run.count && ok[j]) j++;
+      if (j - i >= minEntries) out.push(describe(bytes, dv, run.start + i * 4, j - i));
+      i = j;
+    }
+  }
+  return out.sort((a, b) => b.entries - a.entries);
+}
+
+function describe(bytes, dv, start, count) {
+  const targets = Array.from({ length: count }, (_, i) => dv.getUint32(start + i * 4, true) - R);
+  // Longitud de cada array = distancia al siguiente destino distinto (no hay terminador), máx. 8.
+  const sorted = [...new Set(targets)].sort((a, b) => a - b);
+  const next = new Map(sorted.map((t, k) => [t, sorted[k + 1] ?? t + 32]));
+  const arrays = targets.map((t) => {
+    const len = Math.max(1, Math.min(8, (next.get(t) - t) >> 2));
+    const seqs = readAnimArray(bytes, t, len) ?? [];
+    return { offset: t, seqs };
+  });
+  const firstPtrs = new Map(); const lens = {};
+  for (const a of arrays) { if (!a.seqs.length) continue; firstPtrs.set(a.seqs[0].offset, (firstPtrs.get(a.seqs[0].offset) || 0) + 1); lens[a.seqs.length] = (lens[a.seqs.length] || 0) + 1; }
+  const [commonFirst, sharedBy] = [...firstPtrs.entries()].sort((a, b) => b[1] - a[1])[0];
+  return {
+    start, entries: count, arrayLengthHistogram: lens,
+    commonFirstSequence: { offset: commonFirst, sharedBy, cmds: plausibleAnim(bytes, commonFirst) },
+    arrays,
+    level: Evidence.CORROBORATED,
+    basis: [ANIM_SOURCES.layout, `${count} entradas consecutivas apuntan a arrays de secuencias AnimCmd válidas`],
+  };
+}
+
+/** Versión serializable (sin los comandos completos de cada entrada). */
+function summarizeAnimTable(t) {
+  return { start: hex(t.start), entries: t.entries, arrayLengthHistogram: t.arrayLengthHistogram,
+    commonFirstSequence: { offset: hex(t.commonFirstSequence.offset), sharedBy: t.commonFirstSequence.sharedBy, cmds: t.commonFirstSequence.cmds }, level: t.level, basis: t.basis };
+}
+
+return { ANIM_SOURCES, plausibleAnim, readAnimArray, findAnimTables, summarizeAnimTable };
+})();
+// ---- src/engine/AnimationManager.js
+__mod["src/engine/AnimationManager.js"] = (() => {
+/**
+ * AnimationManager — reproduce secuencias con la MISMA semántica que el motor de sprites de
+ * pokeemerald (src/sprite.c: BeginAnim, ContinueAnim, AnimCmd_frame/end/jump/loop, JumpToTopOfAnimLoop).
+ * Paso de tiempo: 1 tick = 1 fotograma de 60 Hz. Comandos:
+ *   {frame, duration, hflip?, vflip?} | {end:true} | {jump:target} | {loop:count}
+ * Comportamiento reproducido:
+ *   - un frame de duración d se muestra max(d,1) ticks;
+ *   - END detiene la animación en el último frame (animEnded);
+ *   - JUMP salta al índice destino y aplica ese frame en el mismo tick;
+ *   - LOOP(n) vuelve al inicio del bloque (tras el LOOP anterior o desde el principio) n veces:
+ *     el bloque se ejecuta n+1 veces en total (comportamiento real de JumpToTopOfAnimLoop).
+ */
+const typeOf = (c) => (c === undefined ? undefined : 'frame' in c ? 'frame' : 'end' in c ? 'end' : 'jump' in c ? 'jump' : 'loop');
+
+class AnimationPlayer {
+  /** @param {Array<Array<object>>} sequences */
+  constructor(sequences) { this.sequences = sequences; this.start(0); }
+
+  start(animNum) {
+    this.animNum = animNum; this.cmdIndex = 0; this.ended = false; this.loopCounter = 0; this.paused = false;
+    this.delay = 0;
+    const c = this.#cmd();
+    if (typeOf(c) !== 'end') this.#applyFrame(c); // BeginAnim: imageValue != -1
+  }
+  #seq() { return this.sequences[this.animNum]; }
+  #cmd(i = this.cmdIndex) { return this.#seq()[i] ?? { end: true }; } // fin implícito si falta END
+  #applyFrame(c) {
+    if (typeOf(c) !== 'frame') return; // datos mal formados: se ignora (el juego leería basura)
+    this.delay = c.duration ? c.duration - 1 : 0;
+    this.image = c.frame; this.hflip = !!c.hflip; this.vflip = !!c.vflip;
+  }
+  /** Avanza un tick (ContinueAnim). */
+  tick(depth = 0) {
+    if (depth > 64) throw new Error('Bucle de animación sin frames (LOOP/JUMP anidados sin avanzar)');
+    if (this.delay) { this.delay--; return; }
+    if (this.paused) return;
+    this.cmdIndex++;
+    this.#dispatch(depth);
+  }
+  #dispatch(depth) {
+    const c = this.#cmd();
+    switch (typeOf(c)) {
+      case 'frame': this.#applyFrame(c); break;
+      case 'end': this.cmdIndex--; this.ended = true; break;
+      case 'jump': this.cmdIndex = c.jump; this.#applyFrame(this.#cmd()); break;
+      case 'loop':
+        if (this.loopCounter) this.loopCounter--; else this.loopCounter = c.loop;
+        this.#jumpToTopOfLoop();
+        this.tick(depth + 1);
+        break;
+    }
+  }
+  #jumpToTopOfLoop() {
+    if (!this.loopCounter) return;
+    this.cmdIndex--;
+    while (typeOf(this.#seq()[this.cmdIndex - 1]) !== 'loop') { if (this.cmdIndex === 0) break; this.cmdIndex--; }
+    this.cmdIndex--;
+  }
+}
+
+class AnimationManager {
+  constructor() { this.defs = new Map(); this.players = new Set(); }
+  register(id, def) { this.defs.set(id, def); }
+  get(id) { const d = this.defs.get(id); if (!d) throw new Error(`Animación "${id}" no registrada`); return d; }
+  /** Crea un reproductor; si se pasa `onFrame`, se llama tras cada tick con el estado. */
+  create(id, animNum = 0) { const p = new AnimationPlayer(this.get(id).sequences); p.start(animNum); this.players.add(p); return p; }
+  destroy(p) { this.players.delete(p); }
+  tick() { for (const p of this.players) p.tick(); }
+}
+
+return { AnimationPlayer, AnimationManager };
+})();
+// ---- src/engine/AssetPack.js
+__mod["src/engine/AssetPack.js"] = (() => {
+/**
+ * Formato intermedio "gba-asset-pack" v1 (ver docs/ENGINE.md). El motor SOLO consume este formato:
+ * nunca lee una ROM. Los datos se mantienen indexados (tiles 4bpp + paletas) para conservar el
+ * comportamiento de paletas del GBA (cambios de paleta, fundidos) sin re-decodificar.
+ */
+const PACK_FORMAT = 'gba-asset-pack';
+const PACK_VERSION = 1;
+
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+/** Base64 propio (sin atob/btoa ni Buffer) para funcionar igual en navegador y Node. */
+function base64Encode(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 3) {
+    const n = (bytes[i] << 16) | ((bytes[i + 1] ?? 0) << 8) | (bytes[i + 2] ?? 0);
+    s += B64[(n >> 18) & 63] + B64[(n >> 12) & 63] + (i + 1 < bytes.length ? B64[(n >> 6) & 63] : '=') + (i + 2 < bytes.length ? B64[n & 63] : '=');
+  }
+  return s;
+}
+function base64Decode(str) {
+  const clean = str.replace(/\s+/g, '');
+  if (clean.length % 4 || /[^A-Za-z0-9+/=]/.test(clean)) throw new Error('Base64 inválido');
+  const pad = clean.endsWith('==') ? 2 : clean.endsWith('=') ? 1 : 0;
+  const out = new Uint8Array((clean.length / 4) * 3 - pad);
+  let o = 0;
+  for (let i = 0; i < clean.length; i += 4) {
+    const n = (B64.indexOf(clean[i]) << 18) | (B64.indexOf(clean[i + 1]) << 12) | ((B64.indexOf(clean[i + 2]) & 63) << 6) | (B64.indexOf(clean[i + 3]) & 63);
+    if (o < out.length) out[o++] = (n >> 16) & 255;
+    if (o < out.length) out[o++] = (n >> 8) & 255;
+    if (o < out.length) out[o++] = n & 255;
+  }
+  return out;
+}
+
+const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
+const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
+
+/**
+ * Valida un pack y devuelve { ok, errors, warnings }. No lanza: el llamador decide.
+ * Todas las referencias cruzadas (sprite→tileset, animación→sprite…) se comprueban.
+ */
+function validatePack(pack) {
+  const errors = [], warnings = [];
+  const err = (p, m) => errors.push(`${p}: ${m}`);
+  if (!isObj(pack)) return { ok: false, errors: ['El pack no es un objeto JSON'], warnings };
+  if (pack.format !== PACK_FORMAT) err('format', `debe ser "${PACK_FORMAT}"`);
+  if (pack.version !== PACK_VERSION) err('version', `versión ${pack.version} no soportada (se espera ${PACK_VERSION})`);
+  const lic = pack.meta?.license;
+  if (!lic || /^(unspecified|unknown|desconocid)/i.test(lic)) warnings.push('meta.license: sin licencia declarada. Verifica que tienes derechos sobre estos recursos antes de usarlos.');
+  const sec = (k) => (isObj(pack[k]) ? pack[k] : (pack[k] !== undefined && err(k, 'debe ser un objeto'), {}));
+  const palettes = sec('palettes'), tilesets = sec('tilesets'), tilemaps = sec('tilemaps'), sprites = sec('sprites'), animations = sec('animations');
+
+  for (const [id, p] of Object.entries(palettes)) {
+    if (!Array.isArray(p.colors) || !p.colors.length || p.colors.length % 16) err(`palettes.${id}.colors`, 'array de colores con longitud múltiplo de 16');
+    else p.colors.forEach((c, i) => COLOR_RE.test(c) || err(`palettes.${id}.colors[${i}]`, `"${c}" no es #rrggbb`));
+  }
+  for (const [id, t] of Object.entries(tilesets)) {
+    if (t.bpp !== 4 && t.bpp !== 8) err(`tilesets.${id}.bpp`, 'debe ser 4 u 8');
+    if (typeof t.data !== 'string') { err(`tilesets.${id}.data`, 'base64 requerido'); continue; }
+    try { const n = base64Decode(t.data).length; if (n % (t.bpp === 8 ? 64 : 32)) err(`tilesets.${id}.data`, `${n} bytes no es múltiplo del tamaño de tile`); }
+    catch (e) { err(`tilesets.${id}.data`, e.message); }
+  }
+  for (const [id, m] of Object.entries(tilemaps)) {
+    if (!tilesets[m.tileset]) err(`tilemaps.${id}.tileset`, `tileset "${m.tileset}" inexistente`);
+    if (!Number.isInteger(m.width) || !Number.isInteger(m.height) || m.width < 1 || m.height < 1) err(`tilemaps.${id}`, 'width/height enteros ≥ 1');
+    if (!Array.isArray(m.palettes) || m.palettes.some((p) => p !== null && !palettes[p])) err(`tilemaps.${id}.palettes`, 'lista de ids de paleta (uno por banco, null = sin usar)');
+    if (!Array.isArray(m.layers) || !m.layers.length) err(`tilemaps.${id}.layers`, 'al menos una capa');
+    else m.layers.forEach((l, k) => { if (!Array.isArray(l.entries) || l.entries.length !== m.width * m.height) err(`tilemaps.${id}.layers[${k}].entries`, `se esperan ${m.width * m.height} entradas`); });
+  }
+  for (const [id, s] of Object.entries(sprites)) {
+    if (!tilesets[s.tileset]) err(`sprites.${id}.tileset`, `tileset "${s.tileset}" inexistente`);
+    if (!palettes[s.palette]) err(`sprites.${id}.palette`, `paleta "${s.palette}" inexistente`);
+    if (![8, 16, 32, 64].includes(s.frameWidth) || ![8, 16, 32, 64].includes(s.frameHeight)) err(`sprites.${id}`, 'frameWidth/frameHeight ∈ {8,16,32,64} (tamaños OBJ del GBA)');
+    if (s.mapping && s.mapping !== '1d') err(`sprites.${id}.mapping`, 'solo se admite "1d"');
+  }
+  for (const [id, a] of Object.entries(animations)) {
+    if (!sprites[a.sprite]) err(`animations.${id}.sprite`, `sprite "${a.sprite}" inexistente`);
+    if (!Array.isArray(a.sequences) || !a.sequences.length) { err(`animations.${id}.sequences`, 'al menos una secuencia'); continue; }
+    a.sequences.forEach((seq, k) => {
+      if (!Array.isArray(seq) || !seq.length) return err(`animations.${id}.sequences[${k}]`, 'secuencia vacía');
+      const last = seq.at(-1);
+      if (!('end' in last) && !('jump' in last)) warnings.push(`animations.${id}.sequences[${k}]: no termina en end/jump (se comportará como end implícito)`);
+      seq.forEach((c, j) => { if (!('frame' in c || 'end' in c || 'jump' in c || 'loop' in c)) err(`animations.${id}.sequences[${k}][${j}]`, 'comando desconocido'); if ('jump' in c && (c.jump < 0 || c.jump >= seq.length)) err(`animations.${id}.sequences[${k}][${j}]`, 'jump fuera de la secuencia'); });
+    });
+  }
+  return { ok: errors.length === 0, errors, warnings };
+}
+
+return { PACK_FORMAT, PACK_VERSION, base64Encode, base64Decode, validatePack };
+})();
+// ---- src/export/toPack.js
+__mod["src/export/toPack.js"] = (() => {
+/**
+ * Conversión de datos decodificados al formato "gba-asset-pack" v1 que consume el motor.
+ * Uso previsto: recursos sobre los que se tienen derechos. El pack lleva su procedencia (`meta.source`)
+ * y una licencia; si no se indica, queda "UNSPECIFIED" y el motor lo advierte al cargarlo.
+ */
+const { base64Encode, PACK_FORMAT, PACK_VERSION } = __mod["src/engine/AssetPack.js"];
+const { parseMapCell, NUM_METATILES_IN_PRIMARY, NUM_TILES_IN_PRIMARY } = __mod["src/decoders/metatile.js"];
+const rgbaToHex = (c) => '#' + [c & 255, (c >> 8) & 255, (c >> 16) & 255].map((v) => v.toString(16).padStart(2, '0')).join('');
+const palette = (colors) => ({ colors: Array.from(colors.subarray(0, 16), rgbaToHex) });
+const header = (meta) => ({ format: PACK_FORMAT, version: PACK_VERSION, meta: { license: 'UNSPECIFIED', ...meta } });
+
+/** AnimCmd decodificado ({op,...}) → comando del pack. */
+const animCmdToPack = (c) => c.op === 'frame' ? { frame: c.image, duration: c.duration, ...(c.hflip && { hflip: true }), ...(c.vflip && { vflip: true }) }
+  : c.op === 'end' ? { end: true } : c.op === 'jump' ? { jump: c.target } : { loop: c.count };
+
+/**
+ * @param {object} o id, tiles (Uint8Array 4bpp), palette (Uint32Array ≥16), frameWidth, frameHeight,
+ *                   sequences (array de arrays de AnimCmd decodificados, opcional), meta
+ */
+function spriteToPack({ id = 'sprite', tiles, palette: pal, frameWidth, frameHeight, sequences, meta = {} }) {
+  const pack = { ...header(meta), palettes: { [id]: palette(pal) }, tilesets: { [id]: { bpp: 4, data: base64Encode(tiles) } },
+    sprites: { [id]: { tileset: id, palette: id, frameWidth, frameHeight, mapping: '1d' } } };
+  if (sequences?.length) pack.animations = { [id]: { sprite: id, sequences: sequences.map((s) => s.map(animCmdToPack)) } };
+  return pack;
+}
+
+/**
+ * Aplana un mapa de metatiles a dos capas de tiles 8×8 (inferior/superior) con 13 bancos de paleta.
+ * Tileset combinado: tiles primarios en 0..511 (rellenados) + secundarios desde 512, igual que en VRAM.
+ * @param {object} o id, mapBytes, width, height (en metatiles), pair (de buildTilesetPair), meta
+ */
+function mapToPack({ id = 'map', mapBytes, width, height, pair, meta = {} }) {
+  const combined = new Uint8Array(NUM_TILES_IN_PRIMARY * 32 + pair.secondary.tiles.length);
+  combined.set(pair.primary.tiles.subarray(0, NUM_TILES_IN_PRIMARY * 32), 0);
+  combined.set(pair.secondary.tiles, NUM_TILES_IN_PRIMARY * 32);
+  const W = width * 2, H = height * 2, bottom = new Array(W * H).fill(0), top = new Array(W * H).fill(0);
+  const missing = new Set();
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const id_ = parseMapCell(mapBytes[(y * width + x) * 2] | (mapBytes[(y * width + x) * 2 + 1] << 8)).metatile;
+    const [src, local] = id_ < NUM_METATILES_IN_PRIMARY ? [pair.primary.metatiles, id_] : [pair.secondary.metatiles, id_ - NUM_METATILES_IN_PRIMARY];
+    if ((local + 1) * 16 > src.length) { missing.add(id_); continue; }
+    for (let k = 0; k < 8; k++) {
+      const v = src[local * 16 + k * 2] | (src[local * 16 + k * 2 + 1] << 8);
+      const q = k & 3, i = (y * 2 + (q >> 1)) * W + x * 2 + (q & 1);
+      (k < 4 ? bottom : top)[i] = v;
+    }
+  }
+  const palettes = {}; const banks = [];
+  for (let b = 0; b < 13; b++) { palettes[`${id}_bg${b}`] = palette(pair.palette.subarray(b * 16, b * 16 + 16)); banks.push(`${id}_bg${b}`); }
+  return {
+    pack: { ...header(meta), palettes, tilesets: { [id]: { bpp: 4, data: base64Encode(combined) } },
+      tilemaps: { [id]: { tileset: id, width: W, height: H, palettes: banks, layers: [{ entries: bottom }, { entries: top }] } } },
+    missingMetatiles: [...missing],
+  };
+}
+
+return { rgbaToHex, animCmdToPack, spriteToPack, mapToPack };
+})();
+// ---- web/app.js
+__mod["web/app.js"] = (() => {
+/**
+ * Inspector de ROM GBA — interfaz web (HTML + CSS + JavaScript nativo, sin bibliotecas).
+ * Solo capa de presentación: toda la lógica vive en ../src (analizador, decodificadores, estructuras),
+ * que es el mismo código que usa la CLI y que cubren las pruebas.
+ * El archivo se lee con FileReader en memoria; nunca se envía a ningún sitio ni se modifica.
+ */
+const { analyzeRom } = __mod["src/analyzer/analyzeRom.js"];
+const { decompressLZ77 } = __mod["src/decoders/lz77.js"];
+const { decodePalette, grayscalePalette } = __mod["src/decoders/palette.js"];
+const { tilesToIndexedImage } = __mod["src/decoders/tiles.js"];
+const { indexedToRGBA, cropIndexed } = __mod["src/decoders/image.js"];
+const { buildTilesetPair, renderMap } = __mod["src/decoders/metatile.js"];
+const { parseAnimCmds } = __mod["src/decoders/anim.js"];
+const { pairSpriteTables, readSpriteTable, findMapLayouts, loadTilesetData, SOURCES } = __mod["src/structures/schemas.js"];
+const { findAnimTables, summarizeAnimTable, ANIM_SOURCES } = __mod["src/structures/animations.js"];
+const { scanPointers } = __mod["src/analyzer/pointers.js"];
+const { AnimationPlayer } = __mod["src/engine/AnimationManager.js"];
+const { spriteToPack, mapToPack, animCmdToPack } = __mod["src/export/toPack.js"];
+const { hex } = __mod["src/core/BinaryReader.js"];
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const lvl = (l) => `<span class="lvl ${l}">${{ confirmed: 'confirmado', corroborated: 'corroborado', hypothesis: 'hipótesis', rejected: 'rechazado' }[l] ?? l}</span>`;
+/** Offsets siempre en hexadecimal, con o sin prefijo 0x. */
+const parseOff = (s) => { const t = String(s).trim().replace(/^0x/i, ''); return /^[0-9a-f]+$/i.test(t) ? parseInt(t, 16) : NaN; };
+
+const state = { bytes: null, report: null, log: [], spritePairs: [], maps: null, animTables: [], lzSel: null, animTimer: null };
+
+// ------------------------------------------------------------------ registro de errores
+function log(level, message, context = {}) {
+  state.log.push({ time: new Date().toISOString(), level, message, ...context });
+  $('logCount').textContent = state.log.filter((l) => l.level === 'error').length;
+  $('log').insertAdjacentHTML('afterbegin', `<div class="logitem ${level}">[${level}] ${esc(message)} ${Object.keys(context).length ? esc(JSON.stringify(context)) : ''}</div>`);
+}
+/** Ejecuta fn y registra la excepción en lugar de romper la interfaz. */
+function guard(where, fn) { try { return fn(); } catch (e) { log('error', `${where}: ${e.message}`); return null; } }
+
+// ------------------------------------------------------------------ canvas
+function draw(canvas, rgba, zoom = 1) {
+  canvas.width = rgba.width; canvas.height = rgba.height;
+  canvas.style.width = rgba.width * zoom + 'px'; canvas.style.height = rgba.height * zoom + 'px';
+  canvas.getContext('2d').putImageData(new ImageData(rgba.data, rgba.width, rgba.height), 0, 0);
+}
+function drawSwatches(canvas, colors, perRow = 16, size = 14) {
+  const rows = Math.ceil(colors.length / perRow);
+  canvas.width = perRow * size; canvas.height = rows * size; canvas.style.width = canvas.width + 'px'; canvas.style.height = canvas.height + 'px';
+  const ctx = canvas.getContext('2d');
+  colors.forEach((c, i) => { ctx.fillStyle = `rgb(${c & 255},${(c >> 8) & 255},${(c >> 16) & 255})`; ctx.fillRect((i % perRow) * size, Math.floor(i / perRow) * size, size - 1, size - 1); });
+}
+
+// ------------------------------------------------------------------ pestañas
+$('tabs').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-tab]'); if (!b) return;
+  document.querySelectorAll('.tabs button').forEach((x) => x.classList.toggle('active', x === b));
+  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.id === 'tab-' + b.dataset.tab));
+});
+const showTab = (name) => document.querySelector(`.tabs button[data-tab="${name}"]`).click();
+
+// ------------------------------------------------------------------ carga
+$('file').addEventListener('change', (e) => e.target.files[0] && load(e.target.files[0]));
+const drop = $('drop');
+drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+drop.addEventListener('drop', (e) => { e.preventDefault(); drop.classList.remove('over'); e.dataTransfer.files[0] && load(e.dataTransfer.files[0]); });
+
+async function load(file) {
+  stopAnim();
+  $('status').textContent = `Leyendo ${file.name}…`;
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (bytes.length > 0x2000000) log('warn', `El archivo mide ${bytes.length} B: más de 32 MiB, no es una ROM GBA estándar`);
+  let sha1 = null;
+  try { sha1 = [...new Uint8Array(await crypto.subtle.digest('SHA-1', bytes))].map((b) => b.toString(16).padStart(2, '0')).join(''); }
+  catch { log('warn', 'SHA-1 no disponible en este contexto (crypto.subtle); se usa solo CRC32'); }
+  $('status').textContent = 'Analizando…';
+  await new Promise((r) => setTimeout(r, 30)); // deja pintar el estado
+  Object.assign(state, { bytes, log: [], spritePairs: [], maps: null, animTables: [], lzSel: null });
+  $('log').innerHTML = '';
+  const t0 = performance.now();
+  state.report = analyzeRom(bytes, { fileName: file.name, sha1 }, () => {});
+  state.report.errors.forEach((e) => log('error', `Analizador (${e.stage}): ${e.message}`));
+  const limit = parseInt(state.report.layout?.dataEnd ?? bytes.length, 16) || bytes.length;
+  state.spritePairs = guard('Emparejado de tablas de sprites', () => pairSpriteTables(bytes, state.report.structures.stridedTables)) ?? [];
+  state.maps = guard('Búsqueda de MapLayout', () => findMapLayouts(bytes, { limit })) ?? { layouts: [], tilesets: [] };
+  state.animTables = guard('Búsqueda de tablas de animación', () => findAnimTables(bytes, scanPointers(bytes, { limit }).runs)) ?? [];
+  $('status').textContent = `${file.name} — ${(bytes.length / 1048576).toFixed(2)} MiB analizado en ${Math.round(performance.now() - t0)} ms`;
+  $('download').disabled = false;
+  renderSummary(); renderRegions(); renderLzList(); setupSprites(); setupMaps(); hexView(0);
+}
+
+// ------------------------------------------------------------------ resumen
+function claimsTable(claims) {
+  return `<table>${claims.map((c) => `<tr><td>${lvl(c.level)}</td><td>${esc(c.statement)}<div class="hint">${esc(c.basis.join(' · '))}</div></td></tr>`).join('')}</table>`;
+}
+function renderSummary() {
+  const r = state.report, h = r.header, lz = r.compression?.lz77?.stats;
+  const rows = (o) => `<table>${Object.entries(o).map(([k, v]) => `<tr><th>${esc(k)}</th><td class="mono">${esc(v)}</td></tr>`).join('')}</table>`;
+  $('summary').innerHTML = `
+  <div class="card"><h2>Archivo</h2>${rows({ nombre: r.file.name, tamaño: `${r.file.size} B`, CRC32: r.file.crc32, 'SHA-1': r.file.sha1 ?? '—', 'fin de datos': r.layout?.dataEnd, relleno: `${r.layout?.paddingSize} B de ${r.layout?.paddingByte}`, 'sin modificar': r.file.unmodified ? 'sí' : 'NO' })}${claimsTable([...r.file.claims, ...(r.layout?.claims ?? [])])}</div>
+  ${h ? `<div class="card"><h2>Cabecera</h2>${rows({ título: h.title, 'código de juego': h.gameCode, fabricante: h.makerCode, 'punto de entrada': `${h.entryPoint.word} → ${h.entryPoint.target ?? '?'}`, versión: h.softwareVersion, complemento: `${h.complement.stored} (calculado ${h.complement.computed})` })}${claimsTable(h.claims)}</div>` : ''}
+  <div class="card"><h2>Guardado</h2>${claimsTable(r.saveType?.claims ?? [])}</div>
+  <div class="card"><h2>Punteros y compresión</h2>${rows({ 'palabras puntero ROM': r.pointers?.stats.romPointerWords, 'destinos únicos': r.pointers?.stats.uniqueTargets, 'LZ77 corroborados': lz?.corroborated, 'LZ77 hipótesis': lz?.hypothesis, 'bytes comprimidos → descomprimidos': `${lz?.corroboratedCompressedBytes} → ${lz?.corroboratedDecompressedBytes}` })}</div>
+  <div class="card"><h2>Estructuras del juego (validadas en este archivo)</h2>
+    <table><tr><th>Estructura</th><th>Resultado</th><th>Nivel</th></tr>
+    ${state.spritePairs.map((p) => `<tr><td>Sprites ${p.sheetTable} ↔ paletas ${p.paletteTable}</td><td>${p.entries} entradas, ${esc(p.relation)} (${p.matches})</td><td>${lvl(p.level)}</td></tr>`).join('') || '<tr><td colspan=3>No se encontraron parejas de tablas de sprites.</td></tr>'}
+    <tr><td>MapLayout / Tileset</td><td>${state.maps.layouts.length} layouts, ${state.maps.tilesets.length} tilesets</td><td>${lvl(state.maps.level ?? 'hypothesis')}</td></tr>
+    ${state.animTables.map((t) => `<tr><td>Tabla de animaciones ${hex(t.start)}</td><td>${t.entries} arrays de secuencias AnimCmd; primera secuencia común ${hex(t.commonFirstSequence.offset)} (${t.commonFirstSequence.sharedBy} entradas)</td><td>${lvl(t.level)}</td></tr>`).join('')}</table>
+    <p class="hint">Layouts tomados de la descompilación pokeemerald, localizados en este archivo por su forma, sin direcciones prefijadas: ${esc(SOURCES.CompressedSpriteSheet)} · ${esc(SOURCES.MapLayout)}</p></div>`;
+}
+
+// ------------------------------------------------------------------ regiones
+const REGION_COLORS = { 'fill-FF': '#d9dde3', 'fill-00': '#9aa3ad', 'low-entropy': '#7bc47f', 'medium-entropy': '#4c86d9', 'high-entropy': '#d9534f' };
+function renderRegions() {
+  const r = state.report, c = $('regionCanvas');
+  const blocks = Math.ceil(r.file.size / r.regions.blockSize);
+  c.width = blocks; c.height = 1;
+  const ctx = c.getContext('2d');
+  for (const g of r.regions.regions) { ctx.fillStyle = REGION_COLORS[g.class]; ctx.fillRect(parseInt(g.start, 16) / r.regions.blockSize, 0, g.size / r.regions.blockSize, 1); }
+  ctx.fillStyle = '#000';
+  for (const x of r.compression.lz77.corroborated) ctx.fillRect(parseInt(x.offset, 16) / r.regions.blockSize, 0, 0.6, 0.25); // marca de recursos LZ77
+  $('regionLegend').innerHTML = Object.entries(REGION_COLORS).map(([k, v]) => `<span><i style="background:${v}"></i>${k} (${r.regions.histogram[k] ?? 0} bloques)</span>`).join('') + '<span><i style="background:#000"></i>recurso LZ77 corroborado (franja superior)</span>';
+  const at = (e) => { const b = c.getBoundingClientRect(); return Math.floor(((e.clientX - b.left) / b.width) * blocks) * r.regions.blockSize; };
+  c.onmousemove = (e) => { const o = at(e); const g = r.regions.regions.find((g) => o >= parseInt(g.start, 16) && o < parseInt(g.end, 16)); $('regionInfo').textContent = `${hex(o)}  ${g ? `${g.class}  región ${g.start}–${g.end}  entropía media ${g.meanEntropy}` : ''}`; };
+  c.onclick = (e) => { hexView(at(e)); showTab('hex'); };
+  $('regionTable').innerHTML = `<table><tr><th>inicio</th><th>fin</th><th>clase</th><th>tamaño</th><th>entropía</th></tr>${r.regions.regions.filter((g) => g.size >= 0x10000).map((g) => `<tr><td class="mono">${g.start}</td><td class="mono">${g.end}</td><td>${g.class}</td><td>${g.size}</td><td>${g.meanEntropy}</td></tr>`).join('')}</table><p class="hint">Solo regiones de 64 KiB o más; el informe JSON contiene todas.</p>`;
+}
+
+// ------------------------------------------------------------------ recursos LZ77
+function lzItems() {
+  const lz = state.report.compression.lz77;
+  const src = $('lzLevel').value === 'corroborated' ? lz.corroborated : lz.hypothesis;
+  const f = $('lzFormat').value, q = $('lzSearch').value.trim().toLowerCase();
+  return src.filter((c) => (!f || c.possibleFormats.some((p) => p.format === f)) && (!q || c.offset.toLowerCase().includes(q.replace(/^0x/, '')) || String(c.decompressedSize) === q));
+}
+function renderLzList() {
+  const items = lzItems();
+  $('lzCount').textContent = `${items.length} recursos${items.length > 600 ? ' (se muestran 600; filtra para acotar)' : ''}`;
+  $('lzList').innerHTML = items.slice(0, 600).map((c) => `<div data-off="${c.offset}">${c.offset} · ${c.decompressedSize} B · refs ${c.references}</div>`).join('');
+}
+['lzLevel', 'lzFormat', 'lzSearch'].forEach((id) => $(id).addEventListener('input', renderLzList));
+$('lzList').addEventListener('click', (e) => {
+  const d = e.target.closest('div[data-off]'); if (!d) return;
+  document.querySelectorAll('#lzList .sel').forEach((x) => x.classList.remove('sel')); d.classList.add('sel');
+  selectLz(parseInt(d.dataset.off, 16));
+});
+function selectLz(off) {
+  const all = [...state.report.compression.lz77.corroborated, ...state.report.compression.lz77.hypothesis];
+  const meta = all.find((c) => parseInt(c.offset, 16) === off);
+  const res = guard(`LZ77 en ${hex(off)}`, () => decompressLZ77(state.bytes, off));
+  if (!res) return;
+  state.lzSel = { off, data: res.data, meta };
+  $('lzControls').hidden = false;
+  $('lzDetail').innerHTML = `<b class="mono">${hex(off)}</b> ${lvl(meta?.level ?? 'hypothesis')} — ${res.compressedSize} B → ${res.decompressedSize} B · referenciado desde ${meta?.referenceSites?.join(', ') || '—'}<br>
+    Formatos posibles (por tamaño, no concluyentes): ${meta?.possibleFormats.map((p) => `${p.format}${p.tiles ? ` (${p.tiles} tiles)` : ''}${p.palettes16 ? ` (${p.palettes16} paletas)` : ''}`).join(' · ') || 'ninguno'}`;
+  renderLz();
+}
+function lzPalette() {
+  const mode = $('lzPalMode').value, bpp = +$('lzBpp').value;
+  if (mode === 'gray') return grayscalePalette(bpp === 4 ? 16 : 256);
+  const off = parseOff($('lzPalOffset').value);
+  if (!Number.isFinite(off)) { log('warn', 'Offset de paleta no válido; se usan grises'); return grayscalePalette(bpp === 4 ? 16 : 256); }
+  return guard(`Paleta en ${hex(off)}`, () => {
+    const src = mode === 'lz' ? decompressLZ77(state.bytes, off).data : state.bytes;
+    const base = (mode === 'lz' ? 0 : off) + (bpp === 4 ? +$('lzPalBank').value * 32 : 0);
+    const p = decodePalette(src, base, bpp === 4 ? 16 : 256);
+    if (p.bit15Set > 2) log('warn', `La paleta en ${hex(off)} tiene ${p.bit15Set} colores con el bit 15 activo: probablemente no es una paleta`);
+    return p.colors;
+  }) ?? grayscalePalette(bpp === 4 ? 16 : 256);
+}
+function renderLz() {
+  const s = state.lzSel; if (!s) return;
+  const bpp = +$('lzBpp').value, w = Math.max(1, +$('lzWidth').value | 0);
+  const img = guard('Disposición de tiles', () => tilesToIndexedImage(s.data, bpp, w)); if (!img) return;
+  const rgba = indexedToRGBA(img, lzPalette());
+  if (rgba.outOfPalette) log('warn', `${rgba.outOfPalette} píxeles fuera de paleta (magenta)`, { offset: hex(s.off) });
+  draw($('lzCanvas'), rgba, +$('lzZoom').value);
+  $('lzNote').textContent = `${img.tiles} tiles de ${bpp}bpp, ${img.width}×${img.height} px. El ancho y la paleta los eliges tú: este bloque no los declara. ${s.data.length % (bpp * 8) ? `Sobran ${s.data.length % (bpp * 8)} bytes (no es múltiplo de un tile).` : ''}`;
+}
+['lzBpp', 'lzWidth', 'lzPalMode', 'lzPalOffset', 'lzPalBank', 'lzZoom'].forEach((id) => $(id).addEventListener('change', renderLz));
+$('lzAsPalette').onclick = () => {
+  const s = state.lzSel; if (!s) return;
+  const n = Math.min(256, s.data.length >> 1);
+  const p = decodePalette(s.data, 0, n);
+  drawSwatches($('lzCanvas'), p.colors);
+  $('lzNote').textContent = `${n} colores BGR555 · ${p.bit15Set} con el bit 15 activo${p.bit15Set ? ' (indicio contra la hipótesis de paleta)' : ''}.`;
+};
+
+// ------------------------------------------------------------------ sprites
+/**
+ * Tablas de animación candidatas para una pareja de sprites: mismo nº de entradas. Puntuación con
+ * evidencia: fracción de entradas cuyas secuencias solo usan fotogramas que existen en su hoja
+ * (tamaño descomprimido / 2048 B por fotograma de 64×64); desempate por nº de secuencias distintas.
+ */
+function animCandidates(p) {
+  const sizeOf = new Map(state.report.compression.lz77.corroborated.map((c) => [parseInt(c.offset, 16), c.decompressedSize]));
+  const sheets = readSpriteTable(state.bytes, parseInt(p.sheetTable, 16), p.entries, 'sheet');
+  return state.animTables.filter((t) => t.entries === p.entries).map((t) => {
+    let fits = 0; const distinct = new Set();
+    t.arrays.forEach((a, i) => {
+      const frames = (sizeOf.get(sheets[i].data) ?? 0) / 2048;
+      const used = a.seqs.slice(0, 2).flatMap((q) => q.cmds.filter((c) => c.op === 'frame').map((c) => c.image));
+      if (used.length && used.every((f) => f < frames)) fits++;
+      a.seqs.forEach((q) => distinct.add(q.offset));
+    });
+    return { table: t, fits, distinct: distinct.size };
+  }).sort((x, y) => y.fits - x.fits || y.distinct - x.distinct);
+}
+function setupSprites() {
+  const sel = $('spPair');
+  sel.innerHTML = state.spritePairs.map((p, i) => `<option value="${i}">${p.sheetTable} + ${p.paletteTable} (${p.relation})</option>`).join('') || '<option>sin parejas</option>';
+  setupAnimSelect();
+}
+function setupAnimSelect() {
+  const p = state.spritePairs[+$('spPair').value];
+  state.animCands = p ? animCandidates(p) : [];
+  $('spAnimTable').innerHTML = state.animCands.map((c, k) => `<option value="${k}">${hex(c.table.start)} · ${c.fits}/${c.table.entries} encajan · ${c.distinct} secuencias</option>`).join('') + '<option value="manual">manual (alternar fotogramas)</option>';
+  renderSprite();
+}
+function renderSprite() {
+  stopAnim();
+  const p = state.spritePairs[+$('spPair').value]; if (!p) { $('spNote').textContent = 'No hay tablas emparejadas en este archivo.'; return; }
+  const i = Math.max(0, Math.min(p.entries - 1, +$('spIndex').value | 0)); $('spIndex').value = i; $('spIndex').max = p.entries - 1;
+  const sh = readSpriteTable(state.bytes, parseInt(p.sheetTable, 16) + i * 8, 1, 'sheet')[0];
+  const pl = readSpriteTable(state.bytes, parseInt(p.paletteTable, 16) + i * 8, 1, 'palette')[0];
+  const tiles = guard(`Hoja de sprite ${i}`, () => decompressLZ77(state.bytes, sh.data).data);
+  const pal = guard(`Paleta de sprite ${i}`, () => decodePalette(decompressLZ77(state.bytes, pl.data).data, 0, 16).colors);
+  if (!tiles || !pal) return;
+  // Ancho: 8 tiles = 64 px, por SPRITE_SHAPE(64x64) (src/pokemon.c:2145). Solo aplicable a hojas múltiplo de 64×64.
+  const frameBytes = 64 * 64 / 2, fitsFrames = tiles.length % frameBytes === 0;
+  const img = tilesToIndexedImage(tiles, 4, 8);
+  const z = +$('spZoom').value;
+  draw($('spSheet'), indexedToRGBA(img, pal, { transparentZero: true }), z);
+  drawSwatches($('spPal'), pal, 8, 16);
+  state.spFrames = fitsFrames ? Array.from({ length: tiles.length / frameBytes }, (_, k) => indexedToRGBA(cropIndexed(img, 0, k * 64, 64, 64), pal, { transparentZero: true })) : [];
+  if (state.spFrames.length) draw($('spFrame'), state.spFrames[0], z);
+  if (sh.size !== tiles.length) log('warn', `Entrada ${i}: el campo size (${sh.size}) no coincide con el tamaño descomprimido (${tiles.length}); en pokeemerald es la constante MON_PIC_SIZE (src/data.c:301)`, { table: p.sheetTable });
+  // Secuencias reales de la tabla de animación elegida
+  const choice = state.animCands?.[+$('spAnimTable').value];
+  const arr = choice?.table.arrays[i];
+  state.spSeqs = arr ? arr.seqs.map((q) => q.cmds.map(animCmdToPack)) : null;
+  const seqSel = $('spSeq');
+  seqSel.innerHTML = state.spSeqs ? state.spSeqs.map((q, k) => `<option value="${k}">${k}: ${q.length} comandos</option>`).join('') : '<option>—</option>';
+  if (state.spSeqs?.length > 1) seqSel.value = '1'; // [0] = sAnim_GeneralFrame0 (fotograma fijo), [1] = animación de la especie
+  state.spCurrent = { p, i, sh, pl, tiles, pal };
+  $('spNote').textContent = `Ancho de 64 px por ${SOURCES.MonPicOam}. ${fitsFrames ? `La hoja contiene ${state.spFrames.length} fotograma(s) de 64×64.` : 'Esta hoja no es múltiplo de 64×64: el ancho de 8 tiles es una suposición.'} Paleta: misma etiqueta (${pl.tag}) en la tabla emparejada.`;
+  $('spInfo').textContent = `entrada ${i}\nhoja:    datos ${hex(sh.data)}  size ${sh.size}  tag ${sh.tag}  → ${tiles.length} B (${tiles.length / 32} tiles)\npaleta:  datos ${hex(pl.data)}  tag ${pl.tag}\n` +
+    (arr ? `animación: tabla ${hex(choice.table.start)} → array ${hex(arr.offset)}\n${arr.seqs.map((q, k) => `  [${k}] ${hex(q.offset)}  ${q.cmds.map((c) => c.op === 'frame' ? `F${c.image}:${c.duration}${c.hflip ? 'h' : ''}` : c.op === 'end' ? 'END' : c.op === 'jump' ? `JUMP ${c.target}` : `LOOP ${c.count}`).join(' ')}`).join('\n')}\n` +
+      `  ${choice.fits}/${choice.table.entries} entradas usan solo fotogramas existentes. Fuente del layout: ${ANIM_SOURCES.layout}` : 'animación: manual (sin tabla de animación seleccionada)');
+}
+function stopAnim() { cancelAnimationFrame(state.animTimer); clearInterval(state.animTimer); state.animTimer = null; $('spAnim').textContent = 'Reproducir'; }
+$('spAnim').onclick = () => {
+  if (state.animTimer) return stopAnim();
+  if (!state.spFrames?.length) return log('warn', 'La hoja no se divide en fotogramas de 64×64');
+  const z = +$('spZoom').value;
+  if (state.spSeqs && $('spAnimTable').value !== 'manual') {
+    // Reproductor con la semántica exacta de src/sprite.c, a 60 ticks por segundo
+    const player = new AnimationPlayer(state.spSeqs); player.start(+$('spSeq').value);
+    let last = performance.now(), acc = 0, shown = -1;
+    const loop = (now) => {
+      acc += now - last; last = now;
+      while (acc >= 1000 / 60) { player.tick(); acc -= 1000 / 60; }
+      const f = player.image ?? 0;
+      if (f !== shown) {
+        if (f >= state.spFrames.length) { log('error', `La secuencia pide el fotograma ${f}; la hoja solo tiene ${state.spFrames.length}`); return stopAnim(); }
+        draw($('spFrame'), state.spFrames[f], z); shown = f;
+      }
+      $('spAnimState').textContent = `cmd ${player.cmdIndex} · fotograma ${f} · espera ${player.delay}${player.ended ? ' · END' : ''}`;
+      state.animTimer = requestAnimationFrame(loop);
+    };
+    state.animTimer = requestAnimationFrame(loop);
+  } else {
+    if (state.spFrames.length < 2) return log('warn', 'La hoja tiene un solo fotograma');
+    let k = 0;
+    state.animTimer = setInterval(() => { k = (k + 1) % state.spFrames.length; draw($('spFrame'), state.spFrames[k], z); }, Math.max(50, +$('spMs').value));
+  }
+  $('spAnim').textContent = 'Detener';
+};
+$('spPair').addEventListener('change', setupAnimSelect);
+['spIndex', 'spZoom', 'spAnimTable'].forEach((id) => $(id).addEventListener('change', renderSprite));
+$('spSeq').addEventListener('change', () => { stopAnim(); $('spAnim').click(); });
+$('spPrev').onclick = () => { $('spIndex').value = +$('spIndex').value - 1; renderSprite(); };
+$('spNext').onclick = () => { $('spIndex').value = +$('spIndex').value + 1; renderSprite(); };
+$('spExport').onclick = () => {
+  const c = state.spCurrent; if (!c) return;
+  const pack = spriteToPack({ id: `sprite_${c.i}`, tiles: c.tiles, palette: c.pal, frameWidth: 64, frameHeight: 64,
+    sequences: state.spSeqs ? state.spSeqs.map((q) => q.map(packToAnimCmd)) : undefined,
+    meta: { name: `Sprite ${c.i}`, source: `${state.report.file.name} (SHA-1 ${state.report.file.sha1 ?? '?'}) · hoja ${hex(c.sh.data)} · paleta ${hex(c.pl.data)}` } });
+  downloadJSON(pack, `sprite_${c.i}.pack.json`);
+  log('warn', 'Pack exportado con licencia "UNSPECIFIED": úsalo solo si tienes derechos sobre este recurso.');
+};
+/** Inverso de animCmdToPack para reutilizar spriteToPack con secuencias ya convertidas. */
+const packToAnimCmd = (c) => 'frame' in c ? { op: 'frame', image: c.frame, duration: c.duration, hflip: !!c.hflip, vflip: !!c.vflip } : 'end' in c ? { op: 'end' } : 'jump' in c ? { op: 'jump', target: c.jump } : { op: 'loop', count: c.loop };
+function downloadJSON(obj, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(obj, null, 1)], { type: 'application/json' }));
+  a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+// ------------------------------------------------------------------ mapas
+function setupMaps() {
+  const L = state.maps.layouts;
+  $('mapSel').innerHTML = L.map((l, i) => `<option value="${i}">#${i} ${hex(l.offset)} · ${l.width}×${l.height}</option>`).join('') || '<option>sin layouts</option>';
+  renderMapView();
+}
+function currentPair(l) {
+  const ts = new Map(state.maps.tilesets.map((t) => [t.offset, t]));
+  return buildTilesetPair(loadTilesetData(state.bytes, ts.get(l.primaryTileset), decodePalette), loadTilesetData(state.bytes, ts.get(l.secondaryTileset), decodePalette, { secondary: true }));
+}
+function renderMapView() {
+  const l = state.maps.layouts[+$('mapSel').value]; if (!l) { $('mapNote').textContent = 'No se encontraron MapLayout en este archivo.'; return; }
+  const pair = guard('Carga de tilesets', () => currentPair(l)); if (!pair) return;
+  const { img, errors } = renderMap(state.bytes.subarray(l.map, l.map + l.width * l.height * 2), l.width, l.height, pair);
+  errors.forEach((e) => log('error', `Mapa ${hex(l.offset)}: ${e}`));
+  const rgba = indexedToRGBA(img, pair.palette);
+  const c = $('mapCanvas'); draw(c, rgba, +$('mapZoom').value);
+  if ($('mapGrid').checked) { const ctx = c.getContext('2d'); ctx.strokeStyle = 'rgba(255,0,255,.35)'; for (let x = 0; x <= l.width; x++) ctx.strokeRect(x * 16, 0, 0, l.height * 16); for (let y = 0; y <= l.height; y++) ctx.strokeRect(0, y * 16, l.width * 16, 0); }
+  const P = state.maps.tilesets.find((t) => t.offset === l.primaryTileset), S = state.maps.tilesets.find((t) => t.offset === l.secondaryTileset);
+  $('mapNote').textContent = `${errors.length ? `${errors.length} errores de interpretación (ver Registro). ` : 'Sin errores de interpretación. '}Reglas de carga: ${SOURCES.TilesetLoading}.`;
+  $('mapInfo').textContent = `layout ${hex(l.offset)}  ${l.width}×${l.height} metatiles  mapa ${hex(l.map)}  borde ${hex(l.border)}
+primario   ${hex(P.offset)}  comprimido=${P.isCompressed}  tiles ${hex(P.tiles)}  paletas ${hex(P.palettes)}  metatiles ${hex(P.metatiles)} (${pair.primary.metatileCount})  callback ${P.callback ?? 'NULL'}
+secundario ${hex(S.offset)}  comprimido=${S.isCompressed}  tiles ${hex(S.tiles)}  paletas ${hex(S.palettes)}  metatiles ${hex(S.metatiles)} (${pair.secondary.metatileCount})  callback ${S.callback ?? 'NULL'}`;
+}
+['mapSel', 'mapZoom', 'mapGrid'].forEach((id) => $(id).addEventListener('change', renderMapView));
+$('mapExport').onclick = () => {
+  const l = state.maps.layouts[+$('mapSel').value]; if (!l) return;
+  const pair = guard('Carga de tilesets', () => currentPair(l)); if (!pair) return;
+  const { pack, missingMetatiles } = mapToPack({ id: `map_${l.offset.toString(16)}`, mapBytes: state.bytes.subarray(l.map, l.map + l.width * l.height * 2), width: l.width, height: l.height, pair,
+    meta: { name: `Layout ${hex(l.offset)}`, source: `${state.report.file.name} (SHA-1 ${state.report.file.sha1 ?? '?'}) · MapLayout ${hex(l.offset)}` } });
+  missingMetatiles.forEach((m) => log('error', `Exportación ${hex(l.offset)}: metatile ${m} fuera de la tabla (celda vacía)`));
+  downloadJSON(pack, `map_${l.offset.toString(16)}.pack.json`);
+  log('warn', 'Pack exportado con licencia "UNSPECIFIED": úsalo solo si tienes derechos sobre este recurso.');
+};
+$('mapTiles').onclick = () => {
+  const l = state.maps.layouts[+$('mapSel').value]; if (!l) return;
+  const pair = guard('Carga de tilesets', () => currentPair(l)); if (!pair) return;
+  const img = tilesToIndexedImage(pair.primary.tiles, 4, 16);
+  draw($('mapCanvas'), indexedToRGBA(img, pair.palette.subarray(0, 16)), 2);
+  $('mapNote').textContent = `Tiles del tileset primario (${img.tiles}) con la paleta 0. Cada tile usa en el juego la paleta que indica su metatile; aquí se muestran todos con la 0.`;
+};
+
+// ------------------------------------------------------------------ hex / AnimCmd
+function hexView(off) {
+  if (!state.bytes) return;
+  off = Math.max(0, Math.min(state.bytes.length - 1, off)) & ~15;
+  $('hexOff').value = hex(off);
+  let s = '';
+  for (let r = 0; r < 32 && off + r * 16 < state.bytes.length; r++) {
+    const o = off + r * 16, row = state.bytes.subarray(o, o + 16);
+    s += `${hex(o)}  ${[...row].map((b) => b.toString(16).padStart(2, '0')).join(' ').padEnd(47)}  ${[...row].map((b) => (b >= 32 && b < 127 ? String.fromCharCode(b) : '.')).join('')}\n`;
+  }
+  $('hexOut').textContent = s;
+}
+$('hexGo').onclick = () => { const o = parseOff($('hexOff').value); Number.isFinite(o) ? hexView(o) : log('warn', 'Offset no válido'); };
+$('hexAnim').onclick = () => {
+  const o = parseOff($('hexOff').value); if (!state.bytes || !Number.isFinite(o)) return;
+  const cmds = guard(`AnimCmd en ${hex(o)}`, () => parseAnimCmds(state.bytes, o));
+  $('animOut').textContent = cmds ? `Interpretación como union AnimCmd (include/sprite.h). Es una hipótesis del usuario: nada garantiza que haya una animación en este offset.\n` + cmds.map((c, i) => `${i}: ${JSON.stringify(c)}`).join('\n') : '';
+};
+
+// ------------------------------------------------------------------ informe JSON
+$('download').onclick = () => {
+  const out = {
+    ...state.report,
+    gameStructures: {
+      source: 'pret/pokeemerald (vía github.com/marcoscodas/bravely-emerald), localizadas por forma en este archivo',
+      spriteTablePairs: state.spritePairs,
+      animationTables: state.animTables.map(summarizeAnimTable),
+      mapLayouts: { level: state.maps.level, basis: state.maps.basis, count: state.maps.layouts.length, layouts: state.maps.layouts.map((l) => ({ ...l, offset: hex(l.offset), border: hex(l.border), map: hex(l.map), primaryTileset: hex(l.primaryTileset), secondaryTileset: hex(l.secondaryTileset) })) },
+      tilesets: state.maps.tilesets.map((t) => ({ ...t, offset: hex(t.offset), tiles: hex(t.tiles), palettes: hex(t.palettes), metatiles: hex(t.metatiles), metatileAttributes: hex(t.metatileAttributes) })),
+    },
+    interpretationLog: state.log,
+  };
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' }));
+  a.download = (state.report.file.name || 'rom').replace(/\.[^.]+$/, '') + '.report.json';
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
+
+return {  };
+})();
+</script>
+</body>
+</html>

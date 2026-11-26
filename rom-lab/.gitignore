@@ -1,0 +1,8 @@
+# Nunca versionar ROMs ni recursos extraídos
+*.gba
+*.zip
+reports/*.json
+# Packs exportados desde una ROM e informes descargados: pueden contener recursos de terceros
+*.pack.json
+*.report.json
+node_modules/

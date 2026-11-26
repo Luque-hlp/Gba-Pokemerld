@@ -1,0 +1,10 @@
+# Nunca versionar ROMs, BIOS ni partidas: pertenecen a sus titulares
+*.gba
+*.agb
+*.bin
+*.sav
+*.zip
+*.state
+node_modules/
+capturas/
+shots/
