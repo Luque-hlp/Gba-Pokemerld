@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 /**
- * Genera dist/index.html: la aplicación completa en un único archivo (CSS y JS en línea) que funciona
- * abriéndolo con doble clic (file://), donde los navegadores bloquean los módulos ES.
+ * Genera index.html (raíz) a partir de dev.html: la aplicación completa en un único archivo (CSS y JS en
+ * línea) que funciona con doble clic (file://), donde los navegadores bloquean los módulos ES, y en
+ * cualquier alojamiento estático (GitHub Pages, nginx). dev.html carga los módulos de src/ para desarrollar.
  * Empaquetador mínimo propio: cada módulo se envuelve en una función que devuelve sus exportaciones,
  * y cada `import { a, b as c } from './x.js'` se sustituye por una desestructuración del registro.
  * Falla de forma explícita si encuentra una sintaxis de módulos que no admite.
  */
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -44,10 +45,10 @@ for (const f of order) {
   parts.push(`// ---- ${key}`, `__mod[${JSON.stringify(key)}] = (() => {`, src, `return { ${exported.join(', ')} };`, '})();');
 }
 const js = parts.join('\n').replace(/<\/script/gi, '<\\/script');
-let html = readFileSync(resolve(root, 'index.html'), 'utf8')
+let html = readFileSync(resolve(root, 'dev.html'), 'utf8')
+  .replace('<html lang="es">', '<html lang="es">\n<!-- Archivo generado por tools/build.mjs a partir de dev.html y src/. No editar a mano. -->')
   .replace('<link rel="stylesheet" href="styles.css">', () => `<style>\n${readFileSync(resolve(root, 'styles.css'), 'utf8')}</style>`)
   .replace('<script type="module" src="src/main.js"></script>', () => `<script>\n${js}\n</script>`);
 if (html.includes('type="module"') || html.includes('href="styles.css"')) throw new Error('No se pudo incrustar todo en el HTML');
-mkdirSync(resolve(root, 'dist'), { recursive: true });
-writeFileSync(resolve(root, 'dist/index.html'), html);
-console.log(`dist/index.html — ${order.length} módulos, ${(html.length / 1024).toFixed(0)} KiB`);
+writeFileSync(resolve(root, 'index.html'), html);
+console.log(`index.html — ${order.length} módulos, ${(html.length / 1024).toFixed(0)} KiB`);

@@ -12,8 +12,9 @@ de otros emuladores**. El objetivo de compatibilidad es Pokémon Esmeralda.
 ## Cómo usarlo
 | Forma | Comando | Notas |
 |---|---|---|
-| Archivo único | abrir `dist/index.html` con doble clic | Funciona sin servidor (`node tools/build.mjs` lo regenera) |
-| Servidor local | `npm run serve` → http://localhost:8080 | Usa los módulos de `src/` directamente |
+| En línea | https://luque-hlp.github.io/gba-pokemerld/ (GitHub Pages) | Solo el emulador: cada persona carga su propia ROM, que no sale de su navegador |
+| Archivo único | abrir `index.html` con doble clic | Funciona sin servidor. Es un archivo generado: `npm run build` lo regenera desde `dev.html` y `src/` |
+| Servidor local | `npm run serve` → http://localhost:8080/dev.html | Versión de desarrollo con los módulos de `src/` |
 | Docker | `docker build -t gba-emulator .` y `docker run --rm -p 8080:80 gba-emulator` | nginx sirve la aplicación; bloquea rutas `.gba/.sav` |
 
 Controles por defecto: cruceta = flechas · A = X · B = Z · L = A · R = S · Start = Intro · Select = Retroceso.
@@ -37,7 +38,7 @@ src/cartridge/         romLoader.js (validación), saveMemory.js (Flash/SRAM), g
 src/bios/hle.js        vector de IRQ propio + implementación de las SWI
 src/storage/           saveManager.js (IndexedDB, .sav), saveState.js (estados rápidos)
 src/debug/, src/ui/    panel de desarrollador, registro, interfaz y controles
-tools/                 build.mjs (archivo único), serve.mjs (servidor de desarrollo), headless.mjs (pruebas con ROM local)
+tools/                 build.mjs (genera index.html desde dev.html + src/), serve.mjs (servidor de desarrollo), headless.mjs (pruebas con ROM local)
 tests/                 node --test: CPU (ARM/Thumb), memoria, timers, DMA, BIOS, Flash, RTC, serie, PPU, estados
 ```
 Detalles de diseño y fases: [docs/PLAN.md](docs/PLAN.md). Estado verificado con el juego real:

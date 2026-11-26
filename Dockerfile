@@ -4,7 +4,6 @@
 #   docker run --rm -p 8080:80 gba-emulator      →  http://localhost:8080
 FROM nginx:1.27-alpine
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
-COPY index.html styles.css /usr/share/nginx/html/
+COPY index.html dev.html styles.css /usr/share/nginx/html/
 COPY src /usr/share/nginx/html/src
-COPY dist/index.html /usr/share/nginx/html/standalone.html
 EXPOSE 80
